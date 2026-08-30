@@ -1,0 +1,6 @@
+excluded:
+  - .build
+  - dist
+
+trailing_comma:
+  mandatory_comma: true

@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-30T05:02:58Z",
+  "title": "Design System: Cornerlight",
+  "extensions": {
+    "colorMeta": {
+      "website-graphite-deep": {
+        "role": "neutral",
+        "displayName": "Deep Graphite",
+        "canonical": "#07090a",
+        "tonalRamp": [
+          "oklch(15% 0.006 230)",
+          "oklch(25% 0.006 230)",
+          "oklch(35% 0.006 230)",
+          "oklch(47% 0.006 230)",
+          "oklch(59% 0.006 230)",
+          "oklch(71% 0.006 230)",
+          "oklch(83% 0.006 230)",
+          "oklch(95% 0.006 230)"
+        ]
+      },
+      "website-graphite-panel": {
+        "role": "neutral",
+        "displayName": "Panel Graphite",
+        "canonical": "#0c0f11",
+        "tonalRamp": [
+          "oklch(15% 0.008 230)",
+          "oklch(25% 0.008 230)",
+          "oklch(35% 0.008 230)",
+          "oklch(47% 0.008 230)",
+          "oklch(59% 0.008 230)",
+          "oklch(71% 0.008 230)",
+          "oklch(83% 0.008 230)",
+          "oklch(95% 0.008 230)"
+        ]
+      },
+      "website-graphite-raised": {
+        "role": "neutral",
+        "displayName": "Raised Graphite",
+        "canonical": "#14181b",
+        "tonalRamp": [
+          "oklch(15% 0.01 230)",
+          "oklch(25% 0.01 230)",
+          "oklch(35% 0.01 230)",
+          "oklch(47% 0.01 230)",
+          "oklch(59% 0.01 230)",
+          "oklch(71% 0.01 230)",
+          "oklch(83% 0.01 230)",
+          "oklch(95% 0.01 230)"
+        ]
+      },
+      "website-satin-bright": {
+        "role": "neutral",
+        "displayName": "Bright Satin",
+        "canonical": "#f0f1ef",
+        "tonalRamp": [
+          "oklch(15% 0.006 120)",
+          "oklch(25% 0.006 120)",
+          "oklch(35% 0.006 120)",
+          "oklch(47% 0.006 120)",
+          "oklch(59% 0.006 120)",
+          "oklch(71% 0.006 120)",
+          "oklch(83% 0.006 120)",
+          "oklch(95% 0.006 120)"
+        ]
+      },
+      "website-satin-primary": {
+        "role": "neutral",
+        "displayName": "Primary Satin",
+        "canonical": "#c2c6c7",
+        "tonalRamp": [
+          "oklch(15% 0.006 220)",
+          "oklch(25% 0.006 220)",
+          "oklch(35% 0.006 220)",
+          "oklch(47% 0.006 220)",
+          "oklch(59% 0.006 220)",
+          "oklch(71% 0.006 220)",
+          "oklch(83% 0.006 220)",
+          "oklch(95% 0.006 220)"
+        ]
+      },
+      "website-satin-muted": {
+        "role": "neutral",
+        "displayName": "Muted Satin",
+        "canonical": "#858c91",
+        "tonalRamp": [
+          "oklch(15% 0.012 230)",
+          "oklch(25% 0.012 230)",
+          "oklch(35% 0.012 230)",
+          "oklch(47% 0.012 230)",
+          "oklch(59% 0.012 230)",
+          "oklch(71% 0.012 230)",
+          "oklch(83% 0.012 230)",
+          "oklch(95% 0.012 230)"
+        ]
+      },
+      "website-satin-rule": {
+        "role": "neutral",
+        "displayName": "Satin Rule",
+        "canonical": "#454c51",
+        "tonalRamp": [
+          "oklch(15% 0.012 230)",
+          "oklch(25% 0.012 230)",
+          "oklch(35% 0.012 230)",
+          "oklch(47% 0.012 230)",
+          "oklch(59% 0.012 230)",
+          "oklch(71% 0.012 230)",
+          "oklch(83% 0.012 230)",
+          "oklch(95% 0.012 230)"
+        ]
+      },
+      "website-rule-translucent": {
+        "role": "neutral",
+        "displayName": "Translucent Rule",
+        "canonical": "rgba(210, 216, 218, 0.2)",
+        "tonalRamp": [
+          "oklch(15% 0.008 220 / 0.2)",
+          "oklch(25% 0.008 220 / 0.2)",
+          "oklch(35% 0.008 220 / 0.2)",
+          "oklch(47% 0.008 220 / 0.2)",
+          "oklch(59% 0.008 220 / 0.2)",
+          "oklch(71% 0.008 220 / 0.2)",
+          "oklch(83% 0.008 220 / 0.2)",
+          "oklch(95% 0.008 220 / 0.2)"
+        ]
+      },
+      "website-amber-signal": {
+        "role": "primary",
+        "displayName": "Transfer Amber",
+        "canonical": "#eda43a",
+        "tonalRamp": [
+          "oklch(15% 0.09 72)",
+          "oklch(25% 0.11 72)",
+          "oklch(35% 0.13 72)",
+          "oklch(47% 0.15 72)",
+          "oklch(59% 0.16 72)",
+          "oklch(71% 0.14 72)",
+          "oklch(83% 0.1 72)",
+          "oklch(95% 0.04 72)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "website-display": {
+        "displayName": "Condensed Structure",
+        "purpose": "Promises, section headings, structural labels, and the wordmark on the website only."
+      },
+      "website-body": {
+        "displayName": "Calm System Body",
+        "purpose": "Readable explanatory copy and supporting links."
+      },
+      "website-label": {
+        "displayName": "Technical Annotation",
+        "purpose": "Paths, indices, stage labels, and compact implementation facts."
+      }
+    },
+    "shadows": [
+      {
+        "name": "plate-depth",
+        "value": "inset 0 1px rgba(255, 255, 255, 0.04), 0 30px 100px rgba(0, 0, 0, 0.3)",
+        "purpose": "One restrained inner highlight and soft outer edge for the large system plate."
+      },
+      {
+        "name": "primary-action-depth",
+        "value": "inset 0 1px rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(237, 164, 58, 0.08), 0 10px 28px rgba(0, 0, 0, 0.38)",
+        "purpose": "Tactile emphasis for the clipped primary action without establishing a card stack."
+      }
+    ],
+    "motion": [
+      {
+        "name": "handoff-reveal",
+        "value": "900ms cubic-bezier(0.22, 0.75, 0.3, 1) 120ms",
+        "purpose": "One-time opacity and scale reveal for the system handoff artwork."
+      },
+      {
+        "name": "control-response",
+        "value": "160ms ease",
+        "purpose": "Border, transform, and shadow response on the primary action."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0.001ms; completed handoff state",
+        "purpose": "Effectively immediate transitions and fully visible, unscaled artwork when Reduced Motion is enabled."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "structural-collapse",
+        "value": "1180px"
+      },
+      {
+        "name": "compact-stack",
+        "value": "760px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Download Action",
+      "kind": "button",
+      "description": "The decisive website action: a clipped graphite control with an amber transfer edge.",
+      "html": "<a class=\"ds-download-action\" href=\"#\"><span><strong>Download Cornerlight</strong><small>Signed and notarized DMG</small></span><svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M10 2v10m0 0 4-4m-4 4L6 8M3 16h14\"></path></svg></a>",
+      "css": ".ds-download-action { position: relative; display: grid; min-width: 300px; grid-template-columns: 1fr auto; column-gap: 24px; padding: 15px 16px 14px 18px; overflow: hidden; color: var(--silver-0); background: linear-gradient(145deg, #1c2023, #101315 66%); border: 1px solid rgba(221,226,227,.42); clip-path: polygon(0 0,calc(100% - 15px) 0,100% 15px,100% 100%,0 100%); box-shadow: inset 0 1px rgba(255,255,255,.08),0 0 0 1px rgba(237,164,58,.08),0 10px 28px rgba(0,0,0,.38); text-decoration: none; transition: border-color 160ms ease,transform 160ms ease,box-shadow 160ms ease; } .ds-download-action::before { position: absolute; right: 0; bottom: 0; width: 58%; height: 1px; background: linear-gradient(90deg,transparent,var(--amber)); box-shadow: 0 0 9px rgba(237,164,58,.58); content: ''; } .ds-download-action::after { position: absolute; top: 0; right: 0; width: 15px; height: 15px; border-left: 1px solid rgba(237,164,58,.55); background: #21170c; content: ''; } .ds-download-action strong { display: block; font: 700 21px/1 'Barlow Condensed','Arial Narrow',sans-serif; letter-spacing: .02em; text-transform: uppercase; } .ds-download-action small { display: block; margin-top: 6px; color: var(--silver-2); font: 9px/1.4 'SFMono-Regular',Consolas,monospace; letter-spacing: .06em; text-transform: uppercase; } .ds-download-action svg { width: 22px; align-self: center; fill: none; stroke: var(--amber); stroke-linecap: square; stroke-width: 1.6; } .ds-download-action:hover { border-color: rgba(237,164,58,.72); box-shadow: inset 0 1px rgba(255,255,255,.1),0 12px 34px rgba(0,0,0,.48); transform: translateY(-2px); } .ds-download-action:focus-visible { outline: 2px solid var(--silver-0); outline-offset: 4px; }"
+    },
+    {
+      "name": "Navigation Download",
+      "kind": "button",
+      "description": "A compact secondary route to the release, framed by one satin rule.",
+      "html": "<a class=\"ds-nav-download\" href=\"#\">Download</a>",
+      "css": ".ds-nav-download { display: inline-block; padding: 9px 13px; color: var(--silver-0); border: 1px solid var(--silver-3); font: 12px/1.5 -apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif; text-decoration: none; transition: border-color 160ms ease,color 160ms ease; } .ds-nav-download:hover { color: var(--silver-0); border-color: var(--amber); } .ds-nav-download:focus-visible { outline: 2px solid var(--silver-0); outline-offset: 4px; }"
+    },
+    {
+      "name": "System Plate",
+      "kind": "custom",
+      "description": "The near-flat clipped container for the website's inventory-to-native boundary diagram.",
+      "html": "<section class=\"ds-system-plate\"><p>SYSTEM HANDOFF / 001</p><h3>The shortest path to native.</h3><div><span>Three roots</span><i></i><strong>Cornerlight</strong><b></b><span>System-owned UI</span></div></section>",
+      "css": ".ds-system-plate { padding: 28px; color: var(--silver-0); background: linear-gradient(145deg,rgba(20,24,27,.88),rgba(8,10,11,.96)); border: 1px solid rgba(221,226,227,.32); box-shadow: inset 0 1px rgba(255,255,255,.04),0 30px 100px rgba(0,0,0,.3); clip-path: polygon(0 0,calc(100% - 23px) 0,100% 23px,100% 100%,0 100%); } .ds-system-plate p { margin: 0; color: var(--silver-2); font: 600 11px/1.4 'SFMono-Regular',Consolas,monospace; letter-spacing: .14em; text-transform: uppercase; } .ds-system-plate h3 { margin: 3px 0 24px; font: 600 44px/.95 'Barlow Condensed','Arial Narrow',sans-serif; letter-spacing: -.025em; text-transform: uppercase; } .ds-system-plate div { display: grid; grid-template-columns: auto 1fr auto 1fr auto; align-items: center; gap: 12px; padding-top: 22px; border-top: 1px solid var(--rule); color: var(--silver-1); font: 10px/1.4 'SFMono-Regular',Consolas,monospace; text-transform: uppercase; } .ds-system-plate i,.ds-system-plate b { height: 1px; background: var(--silver-3); } .ds-system-plate b { background: var(--amber); box-shadow: 0 0 7px rgba(237,164,58,.5); } .ds-system-plate strong { font: 600 15px/1 'Barlow Condensed','Arial Narrow',sans-serif; letter-spacing: .025em; }"
+    },
+    {
+      "name": "Technical Fact Strip",
+      "kind": "custom",
+      "description": "Compact quantitative facts separated by seams instead of cards.",
+      "html": "<dl class=\"ds-facts\"><div><dt>Roots</dt><dd>3</dd></div><div><dt>Index</dt><dd>None</dd></div><div><dt>Polling</dt><dd>None</dd></div></dl>",
+      "css": ".ds-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); margin: 0; border-top: 1px solid var(--rule); color: var(--silver-0); } .ds-facts div { padding: 14px 0 0; } .ds-facts div + div { padding-left: 16px; border-left: 1px solid var(--rule); } .ds-facts dt { color: var(--silver-2); font: 9px/1.4 'SFMono-Regular',Consolas,monospace; letter-spacing: .13em; text-transform: uppercase; } .ds-facts dd { margin: 3px 0 0; font: 600 21px/1 'Barlow Condensed','Arial Narrow',sans-serif; letter-spacing: .025em; text-transform: uppercase; }"
+    },
+    {
+      "name": "Installation Step",
+      "kind": "custom",
+      "description": "An ordered action row using an amber index, condensed verb, and quiet body copy.",
+      "html": "<div class=\"ds-install-step\"><span>01</span><div><strong>Download</strong><p>Open the signed and notarized disk image.</p></div></div>",
+      "css": ".ds-install-step { display: grid; min-height: 116px; grid-template-columns: 56px minmax(0,1fr); align-items: start; padding: 21px 0; color: var(--silver-0); border-top: 1px solid var(--silver-3); border-bottom: 1px solid var(--rule); } .ds-install-step > span { padding-top: 2px; color: var(--amber); font: 11px/1.5 'SFMono-Regular',Consolas,monospace; } .ds-install-step strong { font: 600 29px/1 'Barlow Condensed','Arial Narrow',sans-serif; letter-spacing: .03em; text-transform: uppercase; } .ds-install-step p { max-width: 480px; margin: 6px 0 0; color: var(--silver-2); font: 14px/1.5 -apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif; }"
+    },
+    {
+      "name": "Requirement Signal",
+      "kind": "custom",
+      "description": "A restrained compatibility callout led by one amber status point.",
+      "html": "<aside class=\"ds-requirement\"><span>Requires</span><strong>macOS 26.6+</strong><p>Private Apple implementation details may change with macOS.</p></aside>",
+      "css": ".ds-requirement { padding-top: 16px; color: var(--silver-0); border-top: 1px solid var(--silver-3); } .ds-requirement span { display: flex; align-items: center; gap: 8px; color: var(--silver-2); font: 10px/1.5 'SFMono-Regular',Consolas,monospace; letter-spacing: .12em; text-transform: uppercase; } .ds-requirement span::before { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); content: ''; } .ds-requirement strong { display: block; margin-top: 6px; font: 600 32px/1 'Barlow Condensed','Arial Narrow',sans-serif; text-transform: uppercase; } .ds-requirement p { margin: 16px 0 0; color: var(--silver-2); font: 12px/1.5 -apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Machined Boundary Plate",
+    "overview": "The website turns Cornerlight's narrow implementation boundary into a restrained technical artifact. A deep graphite field, satin-silver type and rules, and one amber transfer signal make the inventory-to-system handoff legible without imitating the product UI.\n\nThe world is precise, sparse, and nearly flat. Structure comes from alignment, seams, clipped corners, labels, and negative space rather than a collection of elevated containers.",
+    "keyCharacteristics": [
+      "Graphite field with satin-silver structure and one restrained amber signal.",
+      "Condensed structural typography paired with calm system body text and compact monospaced labels.",
+      "Machined, clipped-corner controls and plates with sparse rules instead of rounded card chrome.",
+      "Image-native three-root convergence followed by an explicitly system-owned, abstract native handoff.",
+      "Responsive topology that changes the diagram and information flow instead of merely shrinking them."
+    ],
+    "rules": [
+      {
+        "name": "The Amber Transfer Rule",
+        "body": "Amber indicates passage, activation, or a decisive next step; it does not become a broad decorative fill or a second background system.",
+        "section": "colors"
+      },
+      {
+        "name": "The Native Restraint Rule",
+        "body": "The destination may suggest native macOS territory, but it remains an abstract diagram labeled as system-owned—never a fabricated Spotlight screenshot, invented result list, or alternate native interface.",
+        "section": "components"
+      },
+      {
+        "name": "The Topology Rule",
+        "body": "Preserve sequence and meaning across breakpoints by changing structure and artwork orientation; do not scale a desktop diagram down until its labels fail.",
+        "section": "layout"
+      },
+      {
+        "name": "The Completed-State Rule",
+        "body": "With Reduced Motion enabled, remove smooth scrolling and collapse animation and transition durations to effectively immediate while rendering the handoff in its complete, fully opaque state.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do reserve amber for transfer, activation, primary action emphasis, and small status signals.",
+      "Do use sparse satin rules, alignment, and negative space to separate information.",
+      "Do preserve the three-root convergence and the restrained native handoff in every responsive orientation.",
+      "Do keep the website system explicitly separate from Spotlight's runtime-native ownership."
+    ],
+    "donts": [
+      "Don't turn the page into a feature-card grid or a mosaic of interchangeable rounded panels.",
+      "Don't use fake native screenshots, invented launcher contents, or a website-built Spotlight lookalike.",
+      "Don't promote a route-specific first-viewport composition into the global website system; that composition belongs in its surface brief.",
+      "Don't spread amber across large surfaces or add ornamental glow that obscures the boundary story."
+    ]
+  }
+}
