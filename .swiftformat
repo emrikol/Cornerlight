@@ -1,0 +1,3 @@
+--swiftversion 6.2
+--disable wrapMultilineStatementBraces
+

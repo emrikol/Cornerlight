@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#090b0d">
+    <meta
+      name="description"
+      content="Cornerlight is an index-free macOS application launcher that enumerates installed apps and presents them through the native Spotlight launcher UI."
+    >
+    <meta property="og:title" content="Cornerlight — Index-free macOS app launcher">
+    <meta
+      property="og:description"
+      content="A tiny, index-free macOS app launcher built around the system instead of over it."
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://emrikol.github.io/Cornerlight/">
+    <meta property="og:image" content="https://emrikol.github.io/Cornerlight/assets/app-icon.png">
+    <title>Cornerlight — Index-free macOS app launcher</title>
+    <link rel="icon" href="assets/app-icon.png">
+    <link rel="stylesheet" href="styles.css">
+    <script src="site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="masthead" aria-label="Cornerlight">
+      <a class="brand" href="#top" aria-label="Cornerlight home">
+        <img src="assets/app-icon.png" alt="" width="42" height="42">
+        <span>Cornerlight</span>
+      </a>
+      <nav class="masthead-nav" aria-label="Primary navigation">
+        <a href="#top">Overview</a>
+        <a href="#why">Why</a>
+        <a href="https://github.com/emrikol/Cornerlight/blob/main/PRIVACY.md">Privacy</a>
+        <a class="nav-download" href="https://github.com/emrikol/Cornerlight/releases" data-download>Download</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title">Every app.<br><em>No index.</em></h1>
+          <p class="lede">
+            Cornerlight reads the applications already on your Mac, then hands that exact inventory to macOS’s native launcher UI.
+          </p>
+
+          <div class="hero-actions">
+            <a
+              class="download-action"
+              href="https://github.com/emrikol/Cornerlight/releases"
+              data-download
+            >
+              <span class="download-action-label" data-download-label>First release coming soon</span>
+              <span class="download-action-meta" data-download-meta>Signed and notarized DMG</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M10 2v10m0 0 4-4m-4 4L6 8M3 16h14"></path>
+              </svg>
+            </a>
+            <a class="text-link" href="https://github.com/emrikol/Cornerlight#build">Build from source <span aria-hidden="true">↗</span></a>
+          </div>
+
+          <dl class="hero-facts">
+            <div><dt>Roots</dt><dd>3</dd></div>
+            <div><dt>Index</dt><dd>None</dd></div>
+            <div><dt>Polling</dt><dd>None</dd></div>
+          </dl>
+        </div>
+
+        <div class="blueprint" aria-labelledby="blueprint-title">
+          <div class="blueprint-heading">
+            <div>
+              <p class="plate-id">SYSTEM HANDOFF / 001</p>
+              <h2 id="blueprint-title">The shortest path to native.</h2>
+            </div>
+            <p>Cornerlight owns the inventory.<br>macOS owns the experience.</p>
+          </div>
+
+          <div class="handoff-visual" aria-label="Three application folders converge through Cornerlight into the native macOS launcher">
+            <ol class="source-roots" aria-label="Enumerated application folders">
+              <li>
+                <span class="source-index">01</span>
+                <span class="source-symbol" aria-hidden="true"><i></i></span>
+                <span class="source-copy"><small>Read root</small><code>/System/Applications</code></span>
+              </li>
+              <li>
+                <span class="source-index">02</span>
+                <span class="source-symbol" aria-hidden="true"><i></i></span>
+                <span class="source-copy"><small>Read root</small><code>/Applications</code></span>
+              </li>
+              <li>
+                <span class="source-index">03</span>
+                <span class="source-symbol" aria-hidden="true"><i></i></span>
+                <span class="source-copy"><small>Read root</small><code>~/Applications</code></span>
+              </li>
+            </ol>
+
+            <div class="convergence" aria-hidden="true">
+              <i class="branch branch-one"></i>
+              <i class="branch branch-two"></i>
+              <i class="branch branch-three"></i>
+              <i class="junction"></i>
+            </div>
+
+            <section class="inventory-node" aria-labelledby="inventory-title">
+              <img class="inventory-icon" src="assets/app-icon.png" alt="" width="48" height="48">
+              <div class="inventory-copy">
+                <span class="node-stage">02 / Adapt</span>
+                <h3 id="inventory-title">Cornerlight inventory</h3>
+                <p>No index · no database</p>
+              </div>
+            </section>
+
+            <div class="transfer-path" aria-hidden="true"><i></i></div>
+
+            <section class="native-system" aria-labelledby="native-title">
+              <div class="native-surface" aria-hidden="true">
+                <div class="mini-launcher-header">
+                  <span class="mini-app-mark"><i></i><i></i><i></i></span>
+                  <span class="mini-query"><i></i><b></b></span>
+                  <span class="mini-more"><i></i></span>
+                </div>
+                <div class="mini-rule"></div>
+                <div class="mini-suggestions">
+                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                </div>
+                <div class="mini-rule"></div>
+                <div class="mini-catalog">
+                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                </div>
+              </div>
+              <div class="native-copy">
+                <span class="node-stage">03 / Present</span>
+                <h3 id="native-title">Native macOS UI</h3>
+                <p>Search · select · launch</p>
+              </div>
+            </section>
+          </div>
+
+          <div class="blueprint-footer">
+            <span><i class="legend-line silver"></i> Asynchronous once / FSEvents after</span>
+            <span><i class="legend-line amber"></i> One version-pinned native handoff</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="boundary" aria-labelledby="boundary-title">
+        <div class="boundary-statement">
+          <h2 id="boundary-title">Built around macOS.<br>Not over it.</h2>
+        </div>
+        <div class="boundary-copy">
+          <p>
+            Cornerlight keeps one tiny catalog in memory, listens for filesystem changes, and lets Apple’s installed launcher code handle the visible product.
+          </p>
+          <ul>
+            <li>No Spotlight metadata index</li>
+            <li>No cursor polling</li>
+            <li>No network requests or telemetry</li>
+            <li>No third-party runtime dependencies</li>
+          </ul>
+        </div>
+        <aside class="requirements" aria-label="System requirements">
+          <span>Requires</span>
+          <strong>macOS 26.6+</strong>
+        </aside>
+      </section>
+
+      <section class="problem" id="why" aria-labelledby="problem-title">
+        <div class="problem-statement">
+          <h2 id="problem-title">When the index<br>falls behind.</h2>
+        </div>
+        <div class="problem-copy">
+          <p class="problem-lede">
+            Spotlight’s Applications view depends on a metadata index. When that index is stale or incomplete, installed apps can disappear from results—or the launcher can come up empty.
+          </p>
+          <p>
+            Cornerlight takes a smaller path: enumerate the application bundles already on disk, keep that tiny catalog in memory, refresh it only when the filesystem changes, and hand it to macOS’s launcher UI.
+          </p>
+        </div>
+        <aside class="project-note">
+          <strong>Personal software.<br>Shared as-is.</strong>
+          <p>
+            Cornerlight is a personal project shared in case it is useful. You are welcome to use, study, or modify it, but there is no support commitment, warranty, or assumption of responsibility for anything that goes wrong. Use it at your own risk.
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <footer>
+      <div>
+        <img src="assets/app-icon.png" alt="" width="30" height="30">
+        <span>Cornerlight</span>
+      </div>
+      <nav aria-label="Project links">
+        <a href="https://github.com/emrikol/Cornerlight">Source</a>
+        <a href="https://github.com/emrikol/Cornerlight/blob/main/PRIVACY.md">Privacy</a>
+        <a href="https://github.com/emrikol/Cornerlight/blob/main/LICENSE">GPL-3.0</a>
+      </nav>
+      <p>Made for one Mac. Shared as-is.</p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="wide" x1="294" y1="271" x2="867" y2="691" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff4ba" stop-opacity="0.98"/>
+      <stop offset="0.12" stop-color="#ffc54e" stop-opacity="0.88"/>
+      <stop offset="0.58" stop-color="#dc762d" stop-opacity="0.40"/>
+      <stop offset="1" stop-color="#7c3218" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bright" x1="292" y1="269" x2="752" y2="821" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.09" stop-color="#fff5b7"/>
+      <stop offset="0.42" stop-color="#ffbd3f" stop-opacity="0.86"/>
+      <stop offset="1" stop-color="#b54b1e" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lower" x1="297" y1="274" x2="720" y2="909" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffcf63" stop-opacity="0.92"/>
+      <stop offset="0.52" stop-color="#ba5a25" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#6d2c1b" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="ambient" cx="0" cy="0" r="1" gradientTransform="translate(304 283) rotate(43) scale(564 488)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffae35" stop-opacity="0.45"/>
+      <stop offset="0.34" stop-color="#bd5420" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#571c16" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="594" cy="586" rx="444" ry="385" fill="url(#ambient)"/>
+  <path d="M292 269L903 573L875 700L299 283Z" fill="url(#wide)"/>
+  <path d="M294 270L782 844L708 906L292 278Z" fill="url(#lower)"/>
+  <path d="M292 269L773 643L757 830L298 281Z" fill="url(#bright)"/>
+</svg>

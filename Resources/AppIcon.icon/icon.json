@@ -1,0 +1,58 @@
+{
+  "fill": {
+    "automatic-gradient": "display-p3:0.01800,0.02000,0.02600,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "glass": false,
+          "hidden": false,
+          "image-name": "01-Beams.svg",
+          "name": "Light beams",
+          "opacity": 1.0
+        }
+      ],
+      "name": "01 Light",
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.0
+      }
+    },
+    {
+      "layers": [
+        {
+          "glass": true,
+          "hidden": false,
+          "image-name": "02-Aperture.svg",
+          "name": "Aperture",
+          "opacity": 1.0
+        }
+      ],
+      "name": "02 Aperture",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.45
+      }
+    },
+    {
+      "layers": [
+        {
+          "glass": true,
+          "hidden": false,
+          "image-name": "03-Source.svg",
+          "name": "Light source",
+          "opacity": 1.0
+        }
+      ],
+      "name": "03 Source",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.28
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

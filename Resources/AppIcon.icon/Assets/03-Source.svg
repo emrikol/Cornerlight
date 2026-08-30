@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(292 267) scale(76)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.20" stop-color="#fffbd7"/>
+      <stop offset="0.48" stop-color="#ffd264" stop-opacity="0.90"/>
+      <stop offset="0.76" stop-color="#ff8a16" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#ff6b00" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="spark" x1="257" y1="236" x2="342" y2="313" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff"/>
+      <stop offset="0.45" stop-color="#fff1a8"/>
+      <stop offset="1" stop-color="#ff8b16" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <circle cx="292" cy="267" r="76" fill="url(#halo)"/>
+  <path d="M292 218L305 251L341 267L306 279L292 318L279 281L244 267L278 253L292 218Z" fill="url(#spark)"/>
+  <circle cx="292" cy="267" r="18" fill="#fffdf1"/>
+</svg>

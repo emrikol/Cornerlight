@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Install quality tools
+        run: brew install swiftformat swiftlint actionlint shellcheck
+
+      - name: Validate release metadata
+        if: github.ref_type == 'tag'
+        run: ./scripts/validate-release.sh "$GITHUB_REF_NAME" --revision "$GITHUB_SHA"
+
+      - name: Verify source
+        run: ./verify.sh
+
+  build-sign-notarize-release:
+    needs: verify
+    permissions:
+      contents: write
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Check out verified source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate release metadata
+        if: github.ref_type == 'tag'
+        run: ./scripts/validate-release.sh "$GITHUB_REF_NAME" --revision "$GITHUB_SHA"
+
+      - name: Require release credentials
+        env:
+          SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          for name in SIGNING_CERTIFICATE SIGNING_PASSWORD KEYCHAIN_PASSWORD NOTARIZATION_APPLE_ID NOTARIZATION_TEAM_ID NOTARIZATION_PASSWORD SPARKLE_PRIVATE_KEY; do
+            test -n "${!name}" || { echo "Missing required repository secret: $name" >&2; exit 1; }
+          done
+
+      - name: Import Developer ID certificate
+        env:
+          SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/cornerlight-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/cornerlight-signing.p12"
+          printf '%s' "$SIGNING_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$SIGNING_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          SIGN_IDENTITY="$(
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+              | sed -nE 's/^[^\"]*\"(Developer ID Application:[^\"]+)\".*/\1/p' \
+              | head -n 1
+          )"
+          test -n "$SIGN_IDENTITY" || { echo "Imported certificate has no Developer ID Application identity" >&2; exit 1; }
+          printf '%s\n' "CORNERLIGHT_SIGN_IDENTITY=$SIGN_IDENTITY" >> "$GITHUB_ENV"
+          rm -f -- "$CERTIFICATE_PATH"
+
+      - name: Build signed distribution
+        env:
+          CORNERLIGHT_OUTPUT_ROOT: ${{ runner.temp }}/cornerlight-distribution
+        run: ./build.sh --distribution
+
+      - name: Notarize and package
+        env:
+          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        run: |
+          APP="$RUNNER_TEMP/cornerlight-distribution/Cornerlight.app"
+          SUBMISSION_ZIP="$RUNNER_TEMP/Cornerlight-notarization.zip"
+          ditto -c -k --keepParent "$APP" "$SUBMISSION_ZIP"
+          xcrun notarytool submit "$SUBMISSION_ZIP" \
+            --apple-id "$NOTARIZATION_APPLE_ID" \
+            --team-id "$NOTARIZATION_TEAM_ID" \
+            --password "$NOTARIZATION_PASSWORD" \
+            --wait
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=2 "$APP"
+
+          mkdir -p release dmg-root
+          ditto -c -k --keepParent "$APP" release/Cornerlight.zip
+          ditto "$APP" dmg-root/Cornerlight.app
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname Cornerlight -srcfolder dmg-root -ov -format UDZO release/Cornerlight.dmg
+          codesign --force --timestamp --sign "$CORNERLIGHT_SIGN_IDENTITY" release/Cornerlight.dmg
+          xcrun notarytool submit release/Cornerlight.dmg \
+            --apple-id "$NOTARIZATION_APPLE_ID" \
+            --team-id "$NOTARIZATION_TEAM_ID" \
+            --password "$NOTARIZATION_PASSWORD" \
+            --wait
+          xcrun stapler staple release/Cornerlight.dmg
+          xcrun stapler validate release/Cornerlight.dmg
+          spctl --assess --type open --context context:primary-signature --verbose=2 release/Cornerlight.dmg
+          (cd release && shasum -a 256 Cornerlight.zip Cornerlight.dmg > SHA256SUMS)
+
+      - name: Extract release notes
+        if: github.ref_type == 'tag'
+        run: ./scripts/extract-release-notes.sh "$GITHUB_REF_NAME" > release/release-notes.md
+
+      - name: Generate signed Sparkle appcast
+        if: github.ref_type == 'tag'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          EXISTING_APPCAST="$RUNNER_TEMP/existing-appcast.xml"
+          EXISTING_ARGUMENT=()
+          if curl --fail --silent --show-error --location \
+            https://emrikol.github.io/Cornerlight/appcast.xml \
+            --output "$EXISTING_APPCAST"; then
+            EXISTING_ARGUMENT=("$EXISTING_APPCAST")
+          fi
+          ./scripts/generate-appcast.sh \
+            release/Cornerlight.zip \
+            release/release-notes.md \
+            release/appcast.xml \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
+            "${EXISTING_ARGUMENT[@]}"
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            release/Cornerlight.zip \
+            release/Cornerlight.dmg \
+            release/SHA256SUMS \
+            release/appcast.xml \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Cornerlight ${GITHUB_REF_NAME#v}" \
+            --notes-file release/release-notes.md \
+            --verify-tag
+
+      - name: Delete temporary signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/cornerlight-signing.keychain-db" 2>/dev/null || true

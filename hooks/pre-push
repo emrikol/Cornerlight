@@ -1,0 +1,17 @@
+#!/bin/zsh
+set -euo pipefail
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+REFS_FILE="$(mktemp "${TMPDIR:-/tmp}/cornerlight-pre-push.XXXXXX")"
+trap 'rm -f -- "$REFS_FILE"' EXIT INT TERM
+command cat > "$REFS_FILE"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [[ "$local_ref" == refs/tags/v* ]] || continue
+    TAG="${local_ref#refs/tags/}"
+    [[ "$TAG" =~ '^v[0-9]+\.[0-9]+\.[0-9]+$' ]] || continue
+    COMMIT="$(git rev-parse "$local_sha^{commit}")"
+    "$PROJECT_ROOT/scripts/validate-release.sh" "$TAG" --revision "$COMMIT"
+done < "$REFS_FILE"
+
+exec "$PROJECT_ROOT/verify.sh"
