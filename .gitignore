@@ -1,0 +1,17 @@
+.build/
+.swiftpm/
+.tmp-ghidra/
+dist/
+_site/
+static_analysis_codeql_*/
+*.sarif
+*.app
+*.zip
+*.dmg
+.DS_Store
+.impeccable/comp-choice.json
+.impeccable/cornerlight-pages-brief.md
+.impeccable/questions/
+.impeccable/renders/
+.impeccable/mocks/cornerlight-boundary-map.png
+.impeccable/mocks/cornerlight-layer-cutaway.png

@@ -1,0 +1,6 @@
+#!/bin/zsh
+set -euo pipefail
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+"$PROJECT_ROOT/scripts/check-changelog.sh" --staged
+exec "$PROJECT_ROOT/verify.sh" --quick
