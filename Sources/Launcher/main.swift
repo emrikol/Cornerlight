@@ -3369,6 +3369,7 @@ final class LauncherPresentationCoordinator {
 
     private let makeLauncher: Factory
     private var launcher: (any LauncherPresenting)?
+    private var rebuildsLauncherForDisplayConfiguration = false
 
     init(makeLauncher: @escaping Factory) {
         self.makeLauncher = makeLauncher
@@ -3383,18 +3384,19 @@ final class LauncherPresentationCoordinator {
     }
 
     func showLauncher() {
-        if launcher == nil {
-            launcher = makeLauncher()
-        }
+        prepareLauncher()
         guard launcher?.isPresented != true else { return }
         launcher?.show()
     }
 
     func toggleLauncher() {
-        if launcher == nil {
-            launcher = makeLauncher()
-        }
+        prepareLauncher()
         launcher?.toggle()
+    }
+
+    func displayConfigurationDidChange() {
+        rebuildsLauncherForDisplayConfiguration = launcher != nil
+        discardStaleLauncherIfHidden()
     }
 
     func applicationLostFocus() {
@@ -3416,6 +3418,22 @@ final class LauncherPresentationCoordinator {
 
     func shutdown() {
         launcher = nil
+        rebuildsLauncherForDisplayConfiguration = false
+    }
+
+    private func prepareLauncher() {
+        discardStaleLauncherIfHidden()
+        if launcher == nil {
+            launcher = makeLauncher()
+        }
+    }
+
+    private func discardStaleLauncherIfHidden() {
+        guard rebuildsLauncherForDisplayConfiguration,
+              launcher?.isPresented != true
+        else { return }
+        launcher = nil
+        rebuildsLauncherForDisplayConfiguration = false
     }
 }
 
@@ -4417,6 +4435,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
         invokeLauncher(kind: .explicit)
         return true
+    }
+
+    func applicationDidChangeScreenParameters(_: Notification) {
+        CornerlightTrace.lifecycle.notice("display configuration changed")
+        launcherCoordinator.displayConfigurationDidChange()
     }
 
     func applicationWillTerminate(_: Notification) {

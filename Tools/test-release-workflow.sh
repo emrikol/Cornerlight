@@ -22,6 +22,9 @@ git -C "$BOOTSTRAP_REPOSITORY" init -q
 git -C "$BOOTSTRAP_REPOSITORY" config user.name "Cornerlight Tests"
 git -C "$BOOTSTRAP_REPOSITORY" config user.email "cornerlight-tests@example.invalid"
 cp "$PROJECT_ROOT/Resources/Info.plist" "$BOOTSTRAP_REPOSITORY/Resources/Info.plist"
+plutil -replace CFBundleShortVersionString -string 0.1.0 \
+    "$BOOTSTRAP_REPOSITORY/Resources/Info.plist"
+plutil -replace CFBundleVersion -string 1 "$BOOTSTRAP_REPOSITORY/Resources/Info.plist"
 print -r -- "initial" > "$BOOTSTRAP_REPOSITORY/Sources/main.swift"
 git -C "$BOOTSTRAP_REPOSITORY" add .
 git -C "$BOOTSTRAP_REPOSITORY" commit -q -m "Initial release"
@@ -62,6 +65,8 @@ git -C "$REPOSITORY" init -q
 git -C "$REPOSITORY" config user.name "Cornerlight Tests"
 git -C "$REPOSITORY" config user.email "cornerlight-tests@example.invalid"
 cp "$PROJECT_ROOT/Resources/Info.plist" "$REPOSITORY/Resources/Info.plist"
+plutil -replace CFBundleShortVersionString -string 0.1.0 "$REPOSITORY/Resources/Info.plist"
+plutil -replace CFBundleVersion -string 1 "$REPOSITORY/Resources/Info.plist"
 print -r -- "initial" > "$REPOSITORY/Sources/main.swift"
 cat > "$REPOSITORY/CHANGELOG.md" <<'EOF'
 # Changelog

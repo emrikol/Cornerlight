@@ -76,6 +76,47 @@ struct LauncherPresentationUserStoryTests {
         #expect(coordinator.isLauncherPresented)
     }
 
+    @Test @MainActor
+    func `a hidden launcher is rebuilt after the display configuration changes`() {
+        var created: [PresenterSpy] = []
+        let coordinator = LauncherPresentationCoordinator {
+            let presenter = PresenterSpy()
+            created.append(presenter)
+            return presenter
+        }
+        coordinator.showLauncher()
+        created[0].reportNativeVisibility(false)
+
+        coordinator.displayConfigurationDidChange()
+
+        #expect(!coordinator.hasLauncher)
+        coordinator.showLauncher()
+        #expect(created.count == 2)
+        #expect(created[1].isPresented)
+    }
+
+    @Test @MainActor
+    func `a visible launcher is rebuilt after it closes on a changed display`() {
+        var created: [PresenterSpy] = []
+        let coordinator = LauncherPresentationCoordinator {
+            let presenter = PresenterSpy()
+            created.append(presenter)
+            return presenter
+        }
+        coordinator.showLauncher()
+
+        coordinator.displayConfigurationDidChange()
+        coordinator.toggleLauncher()
+
+        #expect(created.count == 1)
+        #expect(!created[0].isPresented)
+
+        coordinator.toggleLauncher()
+
+        #expect(created.count == 2)
+        #expect(created[1].isPresented)
+    }
+
     @Test
     func `a completed dismissal cannot clear content prepared for a queued reopen`() {
         var contentLease = LauncherContentLease()
