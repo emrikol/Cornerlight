@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-15
+
+- Prevent a crash when another menu opens after Cornerlight rebuilds its launcher for a display configuration change.
+
 ## [0.1.1] - 2026-09-08
 
 - Rebuild the launcher after display configuration changes so its application grid fits the active screen after docking or leaving clamshell mode.

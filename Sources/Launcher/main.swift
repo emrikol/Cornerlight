@@ -2084,6 +2084,29 @@ private final class SpotlightSystemToggleObserver: NSObject {
 }
 
 @MainActor
+enum SpotlightNativeEventCollectorQueueRepair {
+    private static let getter = NSSelectorFromString("eventCollectorQueue")
+    private static let setter = NSSelectorFromString("setEventCollectorQueue:")
+
+    /// Spotlight gates a per-instance queue behind a process-wide `dispatch_once`.
+    /// Replacing its menu item can therefore leave the replacement without a queue.
+    static func ensureQueue(on menuItem: AnyObject) -> Bool {
+        guard menuItem.responds(to: getter),
+              menuItem.responds(to: setter)
+        else { return false }
+
+        if menuItem.perform(getter)?.takeUnretainedValue() == nil {
+            let queue = DispatchQueue(
+                label: "com.emrikol.Cornerlight.SpotlightEventCollector",
+            )
+            _ = menuItem.perform(setter, with: queue as AnyObject)
+        }
+
+        return menuItem.perform(getter)?.takeUnretainedValue() != nil
+    }
+}
+
+@MainActor
 // The dynamic bridge deliberately keeps Spotlight's related selectors in one auditable type.
 // swiftlint:disable:next type_body_length
 final class SpotlightNativeLauncherUI {
@@ -2183,7 +2206,8 @@ final class SpotlightNativeLauncherUI {
             .takeUnretainedValue(),
             let menuItem = allocatedMenuItem
             .perform(NSSelectorFromString("init"))?
-            .takeRetainedValue()
+            .takeRetainedValue(),
+            SpotlightNativeEventCollectorQueueRepair.ensureQueue(on: menuItem)
         else { return nil }
 
         let statusItem = NSStatusBar.system.statusItem(withLength: 0)
@@ -4362,12 +4386,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         updaterDelegate: nil,
         userDriverDelegate: nil,
     )
-    private lazy var launcherCoordinator = LauncherPresentationCoordinator {
+    private lazy var launcherCoordinator = LauncherPresentationCoordinator { [self] in
         let launcher = LauncherWindowController(
-            recentApplicationStore: self.recentApplicationStore,
-            pinnedApplicationStore: self.pinnedApplicationStore,
-            hiddenApplicationStore: self.hiddenApplicationStore,
-            applicationCatalogService: self.applicationCatalogService,
+            recentApplicationStore: recentApplicationStore,
+            pinnedApplicationStore: pinnedApplicationStore,
+            hiddenApplicationStore: hiddenApplicationStore,
+            applicationCatalogService: applicationCatalogService,
         )
         launcher.onOpenSettings = { [weak self] in
             self?.showSettings()
