@@ -1984,6 +1984,14 @@ struct SpotlightNativeTransitionGate {
     }
 
     mutating func complete(_ token: Token) -> Completion {
+        resolve(token)
+    }
+
+    mutating func expire(_ token: Token) -> Completion {
+        resolve(token)
+    }
+
+    private mutating func resolve(_ token: Token) -> Completion {
         guard activeToken == token else { return .stale }
         guard pendingToggle else {
             activeToken = nil
@@ -2040,10 +2048,6 @@ struct SpotlightNativeLifecycleLease {
     mutating func takeDismissalToken() -> Token? {
         defer { token = nil }
         return token
-    }
-
-    mutating func clear() {
-        token = nil
     }
 }
 
@@ -2110,6 +2114,10 @@ enum SpotlightNativeEventCollectorQueueRepair {
 // The dynamic bridge deliberately keeps Spotlight's related selectors in one auditable type.
 // swiftlint:disable:next type_body_length
 final class SpotlightNativeLauncherUI {
+    private static let standardDismissalReason = 0
+    private static let focusLossDismissalReason = 15
+    private static let nativeTransitionRecoveryDelay: TimeInterval = 2
+
     private typealias MainWindowInitializer = @convention(c) (
         AnyObject,
         Selector,
@@ -2421,6 +2429,7 @@ final class SpotlightNativeLauncherUI {
         guard transitionGate.isCurrent(token) else { return }
         lifecycleLease.begin(token)
         prepareForWindowServerInvocation()
+        scheduleTransitionRecovery(for: token, operation: "presentation")
         let selector = NSSelectorFromString("launchAppsBrowsingWithCompletion:")
         let completionBlock: @convention(block) () -> Void = { [weak self] in
             guard let self else { return }
@@ -2441,17 +2450,29 @@ final class SpotlightNativeLauncherUI {
     }
 
     func dismiss() {
-        beginLifecycleDismissal()
-        _ = appDelegate.perform(NSSelectorFromString("dismissSpotlight"))
+        performDismissal(reason: Self.standardDismissalReason) {}
     }
 
     func dismiss(reason: Int, completion: @escaping () -> Void) {
-        lifecycleLease.clear()
+        performDismissal(reason: reason, completion: completion)
+    }
+
+    private func performDismissal(reason: Int, completion: @escaping () -> Void) {
+        endPinnedApplicationPointerReorder()
         let token = transitionGate.supersedeWithDismissal()
+        lifecycleLease.begin(token)
+        let synthesizesDismissalCallback = !panel.isVisible
+        scheduleTransitionRecovery(for: token, operation: "dismissal")
         let selector = NSSelectorFromString("dismissSpotlightWithReason:completion:")
         let completionBlock: @convention(block) () -> Void = { [weak self] in
+            if let self {
+                lifecycleLease.completeNativeInvocation(token)
+                let didComplete = nativeTransitionDidComplete(token)
+                if synthesizesDismissalCallback, didComplete {
+                    scheduleDismissalCallback()
+                }
+            }
             completion()
-            self?.nativeTransitionDidComplete(token)
         }
         unsafeBitCast(
             appDelegate.method(for: selector),
@@ -2459,8 +2480,17 @@ final class SpotlightNativeLauncherUI {
         )(appDelegate, selector, reason, completionBlock)
     }
 
-    private func nativeTransitionDidComplete(_ token: SpotlightNativeTransitionGate.Token) {
-        switch transitionGate.complete(token) {
+    @discardableResult
+    private func nativeTransitionDidComplete(
+        _ token: SpotlightNativeTransitionGate.Token,
+    ) -> Bool {
+        let completion = transitionGate.complete(token)
+        resolveNativeTransition(completion)
+        return completion != .stale
+    }
+
+    private func resolveNativeTransition(_ completion: SpotlightNativeTransitionGate.Completion) {
+        switch completion {
         case .stale:
             CornerlightTrace.lifecycle.notice("ignored stale native Spotlight transition completion")
         case .idle:
@@ -2474,11 +2504,29 @@ final class SpotlightNativeLauncherUI {
         }
     }
 
-    func applicationLostFocus() {
-        if panel.isVisible || transitionGate.hasActiveTransition {
-            beginLifecycleDismissal()
+    private func scheduleTransitionRecovery(
+        for token: SpotlightNativeTransitionGate.Token,
+        operation: String,
+    ) {
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.nativeTransitionRecoveryDelay,
+        ) { [weak self] in
+            guard let self, transitionGate.isCurrent(token) else { return }
+            CornerlightTrace.lifecycle.error(
+                "recovering timed-out native Spotlight \(operation, privacy: .public)",
+            )
+            lifecycleLease.completeNativeInvocation(token)
+            let panelIsHidden = !panel.isVisible && !isPresented
+            resolveNativeTransition(transitionGate.expire(token))
+            if panelIsHidden {
+                scheduleDismissalCallback()
+            }
         }
-        _ = appDelegate.perform(NSSelectorFromString("applicationLostFocus"))
+    }
+
+    func applicationLostFocus() {
+        guard panel.isVisible || transitionGate.hasActiveTransition || isPresented else { return }
+        performDismissal(reason: Self.focusLossDismissalReason) {}
     }
 
     func systemSpotlightDidToggle() {
@@ -3087,12 +3135,6 @@ final class SpotlightNativeLauncherUI {
             completeLifecycleDismissal()
             onNativeDismiss?()
         }
-    }
-
-    private func beginLifecycleDismissal() {
-        endPinnedApplicationPointerReorder()
-        let token = transitionGate.supersedeWithDismissal()
-        lifecycleLease.begin(token)
     }
 
     private func completeLifecycleDismissal() {

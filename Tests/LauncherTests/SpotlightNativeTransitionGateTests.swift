@@ -47,6 +47,21 @@ struct SpotlightNativeTransitionGateTests {
     }
 
     @Test
+    func `a lost native dismissal callback cannot wedge future hot corner toggles`() throws {
+        var gate = SpotlightNativeTransitionGate()
+        let openingToken = try startToken(from: gate.requestToggle())
+        let dismissalToken = gate.supersedeWithDismissal()
+
+        #expect(gate.requestToggle() == .queued)
+        #expect(gate.complete(openingToken) == .stale)
+
+        let recoveredToggleToken = try queuedToken(from: gate.expire(dismissalToken))
+        #expect(gate.isCurrent(recoveredToggleToken))
+        #expect(gate.complete(recoveredToggleToken) == .idle)
+        #expect(!gate.hasActiveTransition)
+    }
+
+    @Test
     func `click outside dismissal becomes idle only after native lifecycle completion`() {
         var gate = SpotlightNativeTransitionGate()
         let dismissalToken = gate.supersedeWithDismissal()

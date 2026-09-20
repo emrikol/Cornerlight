@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-20
+
+- Prevent focus loss during presentation from permanently wedging Hot Corner toggles when Spotlight omits a transition callback.
+
 ## [0.1.2] - 2026-09-15
 
 - Prevent a crash when another menu opens after Cornerlight rebuilds its launcher for a display configuration change.
