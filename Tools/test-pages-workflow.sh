@@ -15,7 +15,7 @@ grep -Fq 'actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5'
 grep -Fq 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4' .github/workflows/pages.yml
 grep -Fq -- '--directory _site' .github/workflows/pages.yml
 grep -Fq 'name: github-pages' .github/workflows/pages.yml
-grep -Fq 'actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4' .github/workflows/pages.yml
+grep -Fq 'actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1' .github/workflows/pages.yml
 grep -Fq 'workflow_run:' .github/workflows/pages.yml
 grep -Fq 'mkdir -p -- "$OUTPUT_ROOT/assets"' scripts/build-pages.sh
 if grep -Fq 'peaceiris/actions-gh-pages' .github/workflows/pages.yml; then
