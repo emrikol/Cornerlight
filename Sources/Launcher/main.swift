@@ -1271,18 +1271,12 @@ enum SpotlightExecutableRuntime {
     private static var attemptedLoad = false
 
     static var isLoaded: Bool {
-        if !attemptedLoad {
-            attemptedLoad = true
-            for path in dependencyPaths + [executablePath] {
-                if let handle = dlopen(path, RTLD_LAZY | RTLD_LOCAL) {
-                    handles.append(handle)
-                }
-            }
-        }
-        return generation != nil
+        loadDependencies()
+        return generation != nil && NSClassFromString("SPApplication") != nil
     }
 
     static var generation: Generation? {
+        loadDependencies()
         if NSClassFromString("_TtC19SpotlightUIInternal20SearchViewController") != nil,
            NSClassFromString("_TtC19SpotlightUIInternal27SearchResultsViewController") != nil,
            NSClassFromString("_TtC19SpotlightUIInternal13WindowManager") != nil,
@@ -1296,6 +1290,17 @@ enum SpotlightExecutableRuntime {
         return nil
     }
 
+    private static func loadDependencies() {
+        if !attemptedLoad {
+            attemptedLoad = true
+            for path in dependencyPaths + [executablePath] {
+                if let handle = dlopen(path, RTLD_LAZY | RTLD_LOCAL) {
+                    handles.append(handle)
+                }
+            }
+        }
+    }
+
     static func sharedApplication() -> NSApplication {
         guard isLoaded,
               let applicationClass = NSClassFromString("SPApplication"),
@@ -1304,7 +1309,10 @@ enum SpotlightExecutableRuntime {
               .takeUnretainedValue() as? NSApplication,
               NSStringFromClass(type(of: application)) == "SPApplication"
         else {
-            fatalError("This macOS Spotlight application runtime is unavailable")
+            CornerlightTrace.lifecycle.error(
+                "Spotlight application runtime unavailable; starting update recovery",
+            )
+            return NSApplication.shared
         }
         return application
     }
@@ -3630,6 +3638,31 @@ enum LauncherStartupPolicy {
     }
 }
 
+enum LauncherRuntimeStartupAction: Equatable {
+    case launch
+    case checkForUpdatesInBackground
+    case promptForUpdateCheck
+}
+
+enum LauncherRuntimeStartupPolicy {
+    static func action(
+        spotlightRuntimeAvailable: Bool,
+        automaticallyChecksForUpdates: Bool,
+    ) -> LauncherRuntimeStartupAction {
+        guard !spotlightRuntimeAvailable else { return .launch }
+        return automaticallyChecksForUpdates
+            ? .checkForUpdatesInBackground
+            : .promptForUpdateCheck
+    }
+}
+
+enum LauncherCompatibilityRecoveryContent {
+    static let messageText = "Cornerlight needs an update"
+    static let informativeText = "This version of Cornerlight does not recognize the " +
+        "Spotlight runtime in this version of macOS. Check for a compatible " +
+        "Cornerlight update to continue."
+}
+
 enum LauncherInvocationKind: Equatable {
     case explicit
     case hotCorner
@@ -4781,8 +4814,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var applicationDirectoryMonitor: ApplicationCatalogDirectoryMonitor?
     private var hotCorner: HotCornerController?
     private var settingsWindowController: LauncherSettingsWindowController?
+    private var compatibilityRecoveryStatusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_: Notification) {
+        LauncherProcessLifetimePolicy.makeResident {
+            ProcessInfo.processInfo.disableAutomaticTermination($0)
+        }
+        let updater = updaterController.updater
+        let runtimeAction = LauncherRuntimeStartupPolicy.action(
+            spotlightRuntimeAvailable: SpotlightExecutableRuntime.isLoaded,
+            automaticallyChecksForUpdates: updater.automaticallyChecksForUpdates,
+        )
+        guard runtimeAction == .launch else {
+            enterCompatibilityRecovery(action: runtimeAction)
+            return
+        }
+
         if let snapshotURL = snapshotURLFromArguments() {
             do {
                 let renderer = LauncherWindowController()
@@ -4795,9 +4842,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        LauncherProcessLifetimePolicy.makeResident {
-            ProcessInfo.processInfo.disableAutomaticTermination($0)
-        }
         let directoryMonitor = ApplicationCatalogDirectoryMonitor(
             roots: ApplicationCatalog.defaultRoots,
         ) { [weak self] in
@@ -4814,9 +4858,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         observer.start()
         recentApplicationObserver = observer
         installHotCorner()
-        if UserDefaults.standard.bool(forKey: "SUEnableAutomaticChecks") {
-            _ = updaterController
-        }
 
         // An explicit launch should show the UI. Login-item launches remain quiet.
         if LauncherStartupPolicy.shouldShowLauncher(
@@ -4847,6 +4888,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         hotCorner = nil
         settingsWindowController?.close()
         settingsWindowController = nil
+        if let compatibilityRecoveryStatusItem {
+            NSStatusBar.system.removeStatusItem(compatibilityRecoveryStatusItem)
+            self.compatibilityRecoveryStatusItem = nil
+        }
         launcherCoordinator.shutdown()
     }
 
@@ -4937,6 +4982,81 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let pathIndex = CommandLine.arguments.index(after: flagIndex)
         guard CommandLine.arguments.indices.contains(pathIndex) else { return nil }
         return URL(fileURLWithPath: CommandLine.arguments[pathIndex])
+    }
+}
+
+private extension AppDelegate {
+    func enterCompatibilityRecovery(action: LauncherRuntimeStartupAction) {
+        CornerlightTrace.lifecycle.error("entering Spotlight compatibility update recovery")
+        installCompatibilityRecoveryStatusItem()
+        switch action {
+        case .launch:
+            return
+        case .checkForUpdatesInBackground:
+            updaterController.updater.checkForUpdatesInBackground()
+        case .promptForUpdateCheck:
+            DispatchQueue.main.async { [weak self] in
+                self?.presentCompatibilityRecoveryPrompt()
+            }
+        }
+    }
+
+    func installCompatibilityRecoveryStatusItem() {
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.button?.image = NSImage(
+            systemSymbolName: "exclamationmark.triangle",
+            accessibilityDescription: LauncherCompatibilityRecoveryContent.messageText,
+        )
+        statusItem.button?.toolTip = "Cornerlight needs an update for this version of macOS"
+
+        let menu = NSMenu()
+        let explanation = NSMenuItem(
+            title: "Spotlight compatibility update required",
+            action: nil,
+            keyEquivalent: "",
+        )
+        explanation.isEnabled = false
+        menu.addItem(explanation)
+        menu.addItem(.separator())
+        let updateItem = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForCompatibilityUpdate(_:)),
+            keyEquivalent: "",
+        )
+        updateItem.target = self
+        menu.addItem(updateItem)
+        let quitItem = NSMenuItem(
+            title: "Quit Cornerlight",
+            action: #selector(quitCompatibilityRecovery(_:)),
+            keyEquivalent: "q",
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+        statusItem.menu = menu
+        compatibilityRecoveryStatusItem = statusItem
+    }
+
+    func presentCompatibilityRecoveryPrompt() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = LauncherCompatibilityRecoveryContent.messageText
+        alert.informativeText = LauncherCompatibilityRecoveryContent.informativeText
+        alert.addButton(withTitle: "Check for Updates")
+        alert.addButton(withTitle: "Quit")
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn {
+            updaterController.updater.checkForUpdates()
+        } else {
+            NSApp.terminate(nil)
+        }
+    }
+
+    @objc func checkForCompatibilityUpdate(_: Any?) {
+        updaterController.updater.checkForUpdates()
+    }
+
+    @objc func quitCompatibilityRecovery(_: Any?) {
+        NSApp.terminate(nil)
     }
 }
 

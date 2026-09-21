@@ -32,6 +32,32 @@ struct LauncherUserStoryTests {
     }
 
     @Test
+    func `a compatible Spotlight runtime starts the launcher before considering recovery`() {
+        #expect(
+            LauncherRuntimeStartupPolicy.action(
+                spotlightRuntimeAvailable: true,
+                automaticallyChecksForUpdates: false,
+            ) == .launch,
+        )
+    }
+
+    @Test
+    func `an unknown Spotlight runtime checks automatically only when enabled`() {
+        #expect(
+            LauncherRuntimeStartupPolicy.action(
+                spotlightRuntimeAvailable: false,
+                automaticallyChecksForUpdates: true,
+            ) == .checkForUpdatesInBackground,
+        )
+        #expect(
+            LauncherRuntimeStartupPolicy.action(
+                spotlightRuntimeAvailable: false,
+                automaticallyChecksForUpdates: false,
+            ) == .promptForUpdateCheck,
+        )
+    }
+
+    @Test
     func `a denied invocation explains Input Monitoring before presenting the launcher`() {
         #expect(
             LauncherInvocationPolicy.action(

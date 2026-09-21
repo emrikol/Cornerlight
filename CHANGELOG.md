@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-21
+
+- Keep Cornerlight's updater available when a future macOS release changes the private Spotlight runtime, automatically checking when permitted and otherwise offering an explicit recovery update check.
+
 ## [0.1.4] - 2026-09-21
 
 - Restore native Hot Corner app browsing on macOS 27 after Spotlight moved its window and search controllers into SpotlightUIInternal.
