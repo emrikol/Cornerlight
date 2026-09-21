@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-21
+
+- Restore native Hot Corner app browsing on macOS 27 after Spotlight moved its window and search controllers into SpotlightUIInternal.
+
 ## [0.1.3] - 2026-09-20
 
 - Prevent focus loss during presentation from permanently wedging Hot Corner toggles when Spotlight omits a transition callback.

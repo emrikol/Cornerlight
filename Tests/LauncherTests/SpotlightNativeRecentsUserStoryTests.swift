@@ -36,17 +36,29 @@ struct SpotlightNativeRecentsUserStoryTests {
             ],
         )
 
-        let navigationControllers = try #require(
-            host.viewController.perform(NSSelectorFromString("viewControllers"))?
-                .takeUnretainedValue() as? NSArray,
-        )
-        let sandwichController = try #require(navigationControllers.firstObject as AnyObject?)
-        let aboveFilterController = try #require(
-            objectIvar(named: "topHitViewController", on: sandwichController),
-        )
-        let scrollingResultsController = try #require(
-            objectIvar(named: "resultsViewController", on: sandwichController),
-        )
+        let aboveFilterController: AnyObject
+        let scrollingResultsController: AnyObject
+        if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
+            aboveFilterController = try #require(nativeResponder(
+                named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
+                in: host.view,
+            ))
+            scrollingResultsController = try #require(nativeResultsController(in: host))
+        } else {
+            let navigationControllers = try #require(
+                host.viewController.perform(NSSelectorFromString("viewControllers"))?
+                    .takeUnretainedValue() as? NSArray,
+            )
+            let sandwichController = try #require(
+                navigationControllers.firstObject as AnyObject?,
+            )
+            aboveFilterController = try #require(
+                objectIvar(named: "topHitViewController", on: sandwichController),
+            )
+            scrollingResultsController = try #require(
+                objectIvar(named: "resultsViewController", on: sandwichController),
+            )
+        }
         let aboveFilterSections = try sections(of: aboveFilterController)
         let scrollingSections = try sections(of: scrollingResultsController)
 

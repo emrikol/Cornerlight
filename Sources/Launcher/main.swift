@@ -16,6 +16,7 @@ import ObjectiveC.runtime
 import OSLog
 import ServiceManagement
 import Sparkle
+import SpotlightBridge
 
 private enum CornerlightTrace {
     static let lifecycle = Logger(subsystem: "com.emrikol.Cornerlight", category: "Lifecycle")
@@ -1250,6 +1251,11 @@ enum HotCornerInvocationPolicy {
 
 @MainActor
 enum SpotlightExecutableRuntime {
+    enum Generation: Equatable {
+        case spotlightAppMacOS
+        case spotlightUIInternal
+    }
+
     static let executablePath = "/System/Library/CoreServices/Spotlight.app/Contents/MacOS/Spotlight"
 
     private static let dependencyPaths = [
@@ -1257,6 +1263,7 @@ enum SpotlightExecutableRuntime {
         "/System/Library/PrivateFrameworks/SearchUI.framework/Versions/A/SearchUI",
         "/System/Library/PrivateFrameworks/SpotlightUIShared.framework/Versions/A/SpotlightUIShared",
         "/System/Library/PrivateFrameworks/SpotlightUIServices.framework/Versions/A/SpotlightUIServices",
+        "/System/Library/PrivateFrameworks/SpotlightUIInternal.framework/Versions/A/SpotlightUIInternal",
         "/System/Library/PrivateFrameworks/AppPredictionClient.framework/Versions/A/AppPredictionClient",
     ]
 
@@ -1272,8 +1279,21 @@ enum SpotlightExecutableRuntime {
                 }
             }
         }
-        return NSClassFromString("_TtC17SpotlightAppMacOS20SearchViewController") != nil &&
-            NSClassFromString("_TtC17SpotlightAppMacOS27SearchResultsViewController") != nil
+        return generation != nil
+    }
+
+    static var generation: Generation? {
+        if NSClassFromString("_TtC19SpotlightUIInternal20SearchViewController") != nil,
+           NSClassFromString("_TtC19SpotlightUIInternal27SearchResultsViewController") != nil,
+           NSClassFromString("_TtC19SpotlightUIInternal13WindowManager") != nil,
+           NSClassFromString("_TtC17SpotlightAppMacOS11AppDelegate") != nil {
+            return .spotlightUIInternal
+        }
+        if NSClassFromString("_TtC17SpotlightAppMacOS20SearchViewController") != nil,
+           NSClassFromString("_TtC17SpotlightAppMacOS27SearchResultsViewController") != nil {
+            return .spotlightAppMacOS
+        }
+        return nil
     }
 
     static func sharedApplication() -> NSApplication {
@@ -1284,7 +1304,7 @@ enum SpotlightExecutableRuntime {
               .takeUnretainedValue() as? NSApplication,
               NSStringFromClass(type(of: application)) == "SPApplication"
         else {
-            fatalError("macOS 26.6 Spotlight application runtime is unavailable")
+            fatalError("This macOS Spotlight application runtime is unavailable")
         }
         return application
     }
@@ -1309,13 +1329,16 @@ private enum SpotlightNativeSectionsHook {
     private static var originalImplementation: IMP?
 
     static func install(on resultsController: AnyObject, owner: SpotlightNativeLauncherUI) -> Bool {
-        guard let resultClass = NSClassFromString(
+        let resultClass: AnyClass? = NSClassFromString(
+            "_TtC19SpotlightUIInternal27SearchResultsViewController",
+        ) ?? NSClassFromString(
             "_TtC17SpotlightAppMacOS27SearchResultsViewController",
-        ),
-            let method = class_getInstanceMethod(
-                resultClass,
-                NSSelectorFromString("setSections:"),
-            )
+        )
+        guard let resultClass,
+              let method = class_getInstanceMethod(
+                  resultClass,
+                  NSSelectorFromString("setSections:"),
+              )
         else { return false }
 
         if originalImplementation == nil {
@@ -1378,8 +1401,11 @@ private enum SpotlightNativeIndexingStatusHook {
     private static var originalImplementation: IMP?
 
     static func install(on indexingView: AnyObject) -> Bool {
-        guard NSStringFromClass(type(of: indexingView)) == "SPSpotlightIndexingView",
-              let indexingViewClass = NSClassFromString("SPSpotlightIndexingView"),
+        let indexingViewClass: AnyClass? = NSClassFromString("SPUISpotlightIndexingView") ??
+            NSClassFromString("SPSpotlightIndexingView")
+        guard let indexingViewClass,
+              let object = indexingView as? NSObject,
+              object.isKind(of: indexingViewClass),
               let method = class_getInstanceMethod(
                   indexingViewClass,
                   NSSelectorFromString("setEligibleToView:"),
@@ -1445,8 +1471,7 @@ private enum SpotlightNativePanelHook {
     private static var orderOutOriginalImplementation: IMP?
 
     static func install(on panel: NSPanel, owner: SpotlightNativeLauncherUI) -> Bool {
-        guard let panelClass = NSClassFromString("SPSpotlightPanel"),
-              installOrderOut(on: panelClass)
+        guard installOrderOut(on: type(of: panel))
         else { return false }
 
         let bridge = SpotlightNativePanelHookBridge()
@@ -1924,7 +1949,9 @@ private enum SpotlightNativeViewOptionsMenuHook {
 
     static func install(owner: SpotlightNativeLauncherUI) -> Bool {
         let selector = NSSelectorFromString("update")
-        guard let menuClass = NSClassFromString("SpotlightAppMacOS.ViewOptionsMenu"),
+        let menuClass: AnyClass? = NSClassFromString("SpotlightUIInternal.ViewOptionsMenu") ??
+            NSClassFromString("SpotlightAppMacOS.ViewOptionsMenu")
+        guard let menuClass,
               let method = class_getInstanceMethod(menuClass, selector)
         else { return false }
 
@@ -1940,12 +1967,23 @@ private enum SpotlightNativeViewOptionsMenuHook {
                     }
                 }
             }
-            guard class_addMethod(
+            let replacementImplementation = imp_implementationWithBlock(replacement)
+            if !class_addMethod(
                 menuClass,
                 selector,
-                imp_implementationWithBlock(replacement),
+                replacementImplementation,
                 method_getTypeEncoding(method),
-            ) else { return false }
+            ) {
+                class_replaceMethod(
+                    menuClass,
+                    selector,
+                    replacementImplementation,
+                    method_getTypeEncoding(method),
+                )
+            }
+            guard let installed = class_getInstanceMethod(menuClass, selector),
+                  method_getImplementation(installed) == replacementImplementation
+            else { return false }
         }
         return true
     }
@@ -2176,6 +2214,8 @@ final class SpotlightNativeLauncherUI {
     private let resultsController: AnyObject
     private let menuItem: AnyObject
     private let sessionAnalytics: AnyObject
+    private let windowManager: AnyObject?
+    private let runtimeGeneration: SpotlightExecutableRuntime.Generation
     private let menuActionTarget: SpotlightNativeMenuActionTarget
     private let searchFieldObserver: SpotlightNativeSearchFieldObserver
     private let systemToggleObserver: SpotlightSystemToggleObserver
@@ -2195,8 +2235,20 @@ final class SpotlightNativeLauncherUI {
     private var lifecycleLease = SpotlightNativeLifecycleLease()
     private lazy var pinnedBadgeImage = Self.makePinnedBadgeImage()
 
+    convenience init?() {
+        guard SpotlightExecutableRuntime.isLoaded,
+              let generation = SpotlightExecutableRuntime.generation
+        else { return nil }
+        switch generation {
+        case .spotlightAppMacOS:
+            self.init(spotlightAppMacOS: ())
+        case .spotlightUIInternal:
+            self.init(spotlightUIInternal: ())
+        }
+    }
+
     // swiftlint:disable:next function_body_length
-    init?() {
+    private init?(spotlightAppMacOS _: Void) {
         guard SpotlightExecutableRuntime.isLoaded,
               let mainWindowClass = NSClassFromString(
                   "_TtC17SpotlightAppMacOS20MainWindowController",
@@ -2340,6 +2392,8 @@ final class SpotlightNativeLauncherUI {
         resultsController = results
         self.menuItem = menuItem
         self.sessionAnalytics = sessionAnalytics
+        windowManager = nil
+        runtimeGeneration = .spotlightAppMacOS
         let menuActionTarget = SpotlightNativeMenuActionTarget()
         self.menuActionTarget = menuActionTarget
         let searchFieldObserver = SpotlightNativeSearchFieldObserver()
@@ -2398,6 +2452,209 @@ final class SpotlightNativeLauncherUI {
         searchField.placeholderString = "Applications"
     }
 
+    // macOS 27 moved Spotlight's controller construction into
+    // SpotlightUIInternal.WindowManager. Its public Objective-C initializer is a trap, so
+    // construct it through Spotlight's real AppDelegate and use the exported Swift entry point
+    // that the system Spotlight executable calls.
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
+    private init?(spotlightUIInternal _: Void) {
+        guard let appDelegateClass = NSClassFromString(
+            "_TtC17SpotlightAppMacOS11AppDelegate",
+        ) else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: AppDelegate class")
+            return nil
+        }
+
+        let appDelegateClassObject = appDelegateClass as AnyObject
+        guard let allocatedAppDelegate = appDelegateClassObject
+            .perform(NSSelectorFromString("alloc"))?
+            .takeUnretainedValue(),
+            let appDelegateObject = allocatedAppDelegate
+            .perform(NSSelectorFromString("init"))?
+            .takeRetainedValue(),
+            let appDelegate = appDelegateObject as? NSObject,
+            let manager = Self.objectIvar(named: "windowManager", on: appDelegate),
+            let menuItem = Self.objectIvar(named: "menuItem", on: appDelegate),
+            let sessionAnalytics = Self.objectIvar(named: "sessionAnalytics", on: manager)
+        else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: ownership graph")
+            return nil
+        }
+
+        let managerPointer = Unmanaged.passUnretained(manager).toOpaque()
+        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+        guard SpotlightNativeEventCollectorQueueRepair.ensureQueue(on: menuItem) else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: event collector queue")
+            return nil
+        }
+        if let keyCommandManager = Self.objectIvar(
+            named: "keyCommandManager",
+            on: appDelegate,
+        ) {
+            Self.setObject(manager, on: keyCommandManager, selector: "setDelegate:")
+        }
+        Self.setObject(manager, on: menuItem, selector: "setDelegate:")
+        Self.setObject(manager, on: menuItem, selector: "setFocusRetentionProvider:")
+        guard CornerlightSpotlightBootstrap(managerPointer),
+              CornerlightSpotlightLaunchAppsBrowsing(managerPointer)
+        else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: WindowManager entry points")
+            return nil
+        }
+
+        guard let panel = NSApp.windows.reversed().first(where: {
+            guard !existingWindows.contains(ObjectIdentifier($0)) else { return false }
+            guard let controller = $0.windowController else { return false }
+            return NSStringFromClass(type(of: controller)) ==
+                "SpotlightUIInternal.MainWindowController"
+        }) as? NSPanel,
+            let mainWindowController = panel.windowController
+        else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: native panel")
+            _ = CornerlightSpotlightDismissAll(managerPointer)
+            return nil
+        }
+
+        // Launch creates the app-browse state synchronously, while SwiftUI installs its AppKit
+        // controller surface on the next run-loop turn. Keep the panel ordered out while that
+        // native hierarchy materializes so startup never flashes Spotlight.
+        let originalAlphaValue = panel.alphaValue
+        panel.alphaValue = 0
+        let controllerDeadline = Date(timeIntervalSinceNow: 0.5)
+        var initialized: NSViewController?
+        repeat {
+            if let root = panel.contentView {
+                initialized = Self.firstDescendantResponder(
+                    named: "SpotlightUIInternal.SearchViewController",
+                    in: root,
+                ) as? NSViewController
+            }
+            if initialized == nil {
+                RunLoop.current.run(
+                    mode: .default,
+                    before: Date(timeIntervalSinceNow: 0.01),
+                )
+            }
+        } while initialized == nil && Date() < controllerDeadline
+
+        guard let initialized,
+              let results = Self.firstDescendantResponder(
+                  named: "SpotlightUIInternal.SearchResultsViewController",
+                  in: initialized.view,
+              ),
+              let resultsViewController = results as? NSViewController,
+              let field = Self.firstDescendant(of: NSSearchField.self, in: initialized.view),
+              NSStringFromClass(type(of: field)) == "SpotlightUIInternal.SearchField",
+              let collectionView = Self.firstDescendant(
+                  of: NSCollectionView.self,
+                  in: resultsViewController.view,
+              ),
+              NSStringFromClass(type(of: collectionView)) == "SearchUICollectionView",
+              let topHitResultsController = Self.firstDescendantResponder(
+                  named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
+                  in: initialized.view,
+              ),
+              let navigationBar = Self.firstDescendant(
+                  named: "SpotlightUIInternal.SearchNavigationBar",
+                  in: initialized.view,
+              ),
+              let indexingStatusView = Self.firstDescendant(
+                  named: "SPUISpotlightIndexingView",
+                  in: navigationBar,
+              )
+        else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: controller surface")
+            _ = CornerlightSpotlightDismissAll(managerPointer)
+            panel.orderOut(nil)
+            panel.alphaValue = originalAlphaValue
+            return nil
+        }
+
+        self.panel = panel
+        self.appDelegate = appDelegate
+        self.mainWindowController = mainWindowController
+        self.topHitResultsController = topHitResultsController
+        viewController = initialized
+        searchField = field
+        self.collectionView = collectionView
+        resultsController = results
+        self.menuItem = menuItem
+        self.sessionAnalytics = sessionAnalytics
+        windowManager = manager
+        runtimeGeneration = .spotlightUIInternal
+        let menuActionTarget = SpotlightNativeMenuActionTarget()
+        self.menuActionTarget = menuActionTarget
+        let searchFieldObserver = SpotlightNativeSearchFieldObserver()
+        self.searchFieldObserver = searchFieldObserver
+        let systemToggleObserver = SpotlightSystemToggleObserver()
+        self.systemToggleObserver = systemToggleObserver
+        statusItem = Self.statusItem(for: menuItem)
+
+        Self.set(true, on: results, selector: "setSingleClickExecutesCommands:")
+        Self.set(false, on: results, selector: "setIsBelowVisibleFilterBar:")
+        let hookResults = [
+            ("indexing", SpotlightNativeIndexingStatusHook.install(on: indexingStatusView)),
+            ("sections", SpotlightNativeSectionsHook.install(on: results, owner: self)),
+            (
+                "top-hit-sections",
+                SpotlightNativeSectionsHook.install(on: topHitResultsController, owner: self),
+            ),
+            ("panel", SpotlightNativePanelHook.install(on: panel, owner: self)),
+            (
+                "context-menu",
+                SpotlightNativeContextMenuHook.install(on: collectionView, owner: self),
+            ),
+            (
+                "pinned-reorder",
+                SpotlightNativePinnedReorderHook.install(on: collectionView, owner: self),
+            ),
+            (
+                "pinned-badge",
+                SpotlightNativePinnedBadgeHook.install(on: collectionView, owner: self),
+            ),
+            ("view-options", SpotlightNativeViewOptionsMenuHook.install(owner: self)),
+        ]
+        let failedHooks = hookResults.compactMap { name, installed in installed ? nil : name }
+        guard failedHooks.isEmpty else {
+            CornerlightTrace.lifecycle.error(
+                "macOS 27 bridge failed hooks: \(failedHooks.joined(separator: ","), privacy: .public)",
+            )
+            _ = CornerlightSpotlightDismissAll(managerPointer)
+            panel.orderOut(nil)
+            panel.alphaValue = originalAlphaValue
+            NSStatusBar.system.removeStatusItem(statusItem)
+            return nil
+        }
+
+        menuActionTarget.owner = self
+        searchFieldObserver.owner = self
+        searchFieldObserver.searchField = field
+        NotificationCenter.default.addObserver(
+            searchFieldObserver,
+            selector: #selector(SpotlightNativeSearchFieldObserver.textDidChange(_:)),
+            name: NSText.didChangeNotification,
+            object: nil,
+        )
+        systemToggleObserver.owner = self
+        let distributedCenter = DistributedNotificationCenter.default()
+        SpotlightSystemToggleIsolation.removeNativeToggleObserver(
+            menuItem,
+            from: distributedCenter,
+        )
+        distributedCenter.addObserver(
+            systemToggleObserver,
+            selector: #selector(SpotlightSystemToggleObserver.systemSpotlightDidToggle(_:)),
+            name: SpotlightSystemToggleIsolation.notificationName,
+            object: nil,
+            suspensionBehavior: .deliverImmediately,
+        )
+        searchField.placeholderString = "Applications"
+
+        _ = CornerlightSpotlightDismissAll(managerPointer)
+        panel.orderOut(nil)
+        panel.alphaValue = originalAlphaValue
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(searchFieldObserver)
         DistributedNotificationCenter.default().removeObserver(systemToggleObserver)
@@ -2410,10 +2667,12 @@ final class SpotlightNativeLauncherUI {
 
     var isPresented: Bool {
         let selector = NSSelectorFromString("spotlightIsVisible")
+        let presentationOwner = windowManager ?? appDelegate
+        guard presentationOwner.responds(to: selector) else { return panel.isVisible }
         return unsafeBitCast(
-            appDelegate.method(for: selector),
+            presentationOwner.method(for: selector),
             to: BoolGetter.self,
-        )(appDelegate, selector)
+        )(presentationOwner, selector)
     }
 
     func invoke() {
@@ -2430,6 +2689,20 @@ final class SpotlightNativeLauncherUI {
         lifecycleLease.begin(token)
         prepareForWindowServerInvocation()
         scheduleTransitionRecovery(for: token, operation: "presentation")
+        if let windowManager {
+            let managerPointer = Unmanaged.passUnretained(windowManager).toOpaque()
+            guard CornerlightSpotlightLaunchAppsBrowsing(managerPointer) else {
+                lifecycleLease.completeNativeInvocation(token)
+                resolveNativeTransition(transitionGate.expire(token))
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self, transitionGate.isCurrent(token) else { return }
+                lifecycleLease.completeNativeInvocation(token)
+                nativeTransitionDidComplete(token)
+            }
+            return
+        }
         let selector = NSSelectorFromString("launchAppsBrowsingWithCompletion:")
         let completionBlock: @convention(block) () -> Void = { [weak self] in
             guard let self else { return }
@@ -2443,6 +2716,7 @@ final class SpotlightNativeLauncherUI {
     }
 
     func prepareForWindowServerInvocation() {
+        guard windowManager == nil else { return }
         // Spotlight sets this while dismissing to consume Dock's paired launch message.
         // Cornerlight's Hot Corner is already edge-gated and arrives from WindowServer, so a
         // stale Dock-only suppression bit must not consume its next genuine entry.
@@ -2463,6 +2737,32 @@ final class SpotlightNativeLauncherUI {
         lifecycleLease.begin(token)
         let synthesizesDismissalCallback = !panel.isVisible
         scheduleTransitionRecovery(for: token, operation: "dismissal")
+        if let windowManager {
+            let managerPointer = Unmanaged.passUnretained(windowManager).toOpaque()
+            guard CornerlightSpotlightDismissAll(managerPointer) else {
+                lifecycleLease.completeNativeInvocation(token)
+                resolveNativeTransition(transitionGate.expire(token))
+                completion()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self else {
+                    completion()
+                    return
+                }
+                guard transitionGate.isCurrent(token) else {
+                    completion()
+                    return
+                }
+                lifecycleLease.completeNativeInvocation(token)
+                let didComplete = nativeTransitionDidComplete(token)
+                if synthesizesDismissalCallback, didComplete {
+                    scheduleDismissalCallback()
+                }
+                completion()
+            }
+            return
+        }
         let selector = NSSelectorFromString("dismissSpotlightWithReason:completion:")
         let completionBlock: @convention(block) () -> Void = { [weak self] in
             if let self {
@@ -3116,7 +3416,9 @@ final class SpotlightNativeLauncherUI {
     }
 
     func resetQuery() {
-        Self.call(true, on: viewController, selector: "goToAppsSearchWithResetQuery:")
+        if runtimeGeneration == .spotlightAppMacOS {
+            Self.call(true, on: viewController, selector: "goToAppsSearchWithResetQuery:")
+        }
         searchField.stringValue = ""
     }
 
@@ -3228,6 +3530,33 @@ final class SpotlightNativeLauncherUI {
             }
         }
         return nil
+    }
+
+    private static func firstDescendantResponder(
+        named className: String,
+        in root: NSView,
+    ) -> NSResponder? {
+        if let responder = root.nextResponder,
+           NSStringFromClass(type(of: responder)) == className {
+            return responder
+        }
+        for subview in root.subviews {
+            if let match = firstDescendantResponder(named: className, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private static func statusItem(for menuItem: AnyObject) -> NSStatusItem {
+        let getter = NSSelectorFromString("statusItem")
+        if menuItem.responds(to: getter),
+           let existing = menuItem.perform(getter)?.takeUnretainedValue() as? NSStatusItem {
+            return existing
+        }
+        let statusItem = NSStatusBar.system.statusItem(withLength: 0)
+        setObject(statusItem, on: menuItem, selector: "setStatusItem:")
+        return statusItem
     }
 
     private static func snapshot(_ view: NSView) -> NSImage? {

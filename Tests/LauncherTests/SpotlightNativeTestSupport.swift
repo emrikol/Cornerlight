@@ -22,6 +22,12 @@ private typealias CollectionControllerInitializer = @convention(c) (
     Selector,
     Bool,
 ) -> Unmanaged<AnyObject>?
+private typealias CollectionItemProvider = @convention(c) (
+    AnyObject,
+    Selector,
+    NSCollectionView,
+    NSIndexPath,
+) -> Unmanaged<AnyObject>?
 
 @MainActor
 final class NativeCollectionTestSurface {
@@ -45,22 +51,43 @@ final class NativeCollectionTestSurface {
         )
         window.contentViewController = viewController
 
-        let resultsController = try #require(
-            host.viewController
-                .perform(NSSelectorFromString("resultsViewController"))?
-                .takeUnretainedValue(),
-        )
+        let resultsController = try #require(nativeResultsController(in: host))
         let sections = try #require(
             resultsController.perform(NSSelectorFromString("sections"))?
                 .takeUnretainedValue() as? NSArray,
         )
         try applyNativeSnapshot(sections, to: collectionController)
+        window.alphaValue = 0
+        window.orderFront(nil)
         viewController.view.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         collectionView = try #require(
             nativeDescendant(named: "SearchUICollectionView", in: viewController.view)
                 as? NSCollectionView,
         )
+        collectionView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    func item(at indexPath: IndexPath) -> NSCollectionViewItem? {
+        if let visible = collectionView.item(at: indexPath) {
+            return visible
+        }
+        let selector = NSSelectorFromString(
+            "collectionView:itemForRepresentedObjectAtIndexPath:",
+        )
+        guard let dataSource = collectionView.dataSource as AnyObject?,
+              dataSource.responds(to: selector)
+        else { return nil }
+        return unsafeBitCast(
+            dataSource.method(for: selector),
+            to: CollectionItemProvider.self,
+        )(
+            dataSource,
+            selector,
+            collectionView,
+            indexPath as NSIndexPath,
+        )?.takeUnretainedValue() as? NSCollectionViewItem
     }
 }
 
@@ -76,11 +103,7 @@ func nativeApplicationContextMenu(in host: SpotlightNativeLauncherUI) throws -> 
     let collectionController = try replacementCollectionController(
         matching: installedCollectionController,
     )
-    let resultsController = try #require(
-        host.viewController
-            .perform(NSSelectorFromString("resultsViewController"))?
-            .takeUnretainedValue(),
-    )
+    let resultsController = try #require(nativeResultsController(in: host))
     let sections = try #require(
         resultsController.perform(NSSelectorFromString("sections"))?
             .takeUnretainedValue() as? NSArray,
@@ -98,11 +121,12 @@ func nativeApplicationContextMenu(in host: SpotlightNativeLauncherUI) throws -> 
 
 @MainActor
 private func replacementCollectionController(matching controller: AnyObject) throws -> AnyObject {
+    let initializer = NSSelectorFromString("initForAboveFilterResults:")
+    guard controller.responds(to: initializer) else { return controller }
     let controllerClass = type(of: controller) as AnyObject
     let allocated = try #require(
         controllerClass.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue(),
     )
-    let initializer = NSSelectorFromString("initForAboveFilterResults:")
     let replacement = try #require(
         unsafeBitCast(allocated.method(for: initializer), to: CollectionControllerInitializer.self)(
             allocated,
@@ -155,7 +179,38 @@ func applyNativeSnapshot(_ sections: NSArray, to collectionController: AnyObject
 }
 
 @MainActor
-private func nativeDescendant(named name: String, in root: NSView) -> NSView? {
+func nativeResultsController(in host: SpotlightNativeLauncherUI) -> AnyObject? {
+    let selector = NSSelectorFromString("resultsViewController")
+    if host.viewController.responds(to: selector) {
+        return host.viewController.perform(selector)?.takeUnretainedValue()
+    }
+    return nativeResponder(
+        named: "SpotlightUIInternal.SearchResultsViewController",
+        in: host.view,
+    )
+}
+
+func nativeObjectIvar(named name: String, on object: AnyObject) -> AnyObject? {
+    guard let ivar = class_getInstanceVariable(type(of: object), name) else { return nil }
+    return object_getIvar(object, ivar) as AnyObject?
+}
+
+@MainActor
+func nativeResponder(named name: String, in root: NSView) -> NSResponder? {
+    if let responder = root.nextResponder,
+       NSStringFromClass(type(of: responder)) == name {
+        return responder
+    }
+    for subview in root.subviews {
+        if let match = nativeResponder(named: name, in: subview) {
+            return match
+        }
+    }
+    return nil
+}
+
+@MainActor
+func nativeDescendant(named name: String, in root: NSView) -> NSView? {
     if NSStringFromClass(type(of: root)) == name {
         return root
     }

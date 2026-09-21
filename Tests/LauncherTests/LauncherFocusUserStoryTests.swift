@@ -17,11 +17,10 @@ struct LauncherFocusUserStoryTests {
         let applicationClass: AnyClass = try #require(NSClassFromString("SPApplication"))
         #expect(class_getSuperclass(applicationClass) == NSApplication.self)
 
-        for selectorName in [
-            "_stealKeyFocusWithOptions:",
-            "_releaseKeyFocus",
-            "sendEvent:",
-        ] {
+        let selectorNames = SpotlightExecutableRuntime.generation == .spotlightUIInternal
+            ? ["sendEvent:"]
+            : ["_stealKeyFocusWithOptions:", "_releaseKeyFocus", "sendEvent:"]
+        for selectorName in selectorNames {
             let selector = NSSelectorFromString(selectorName)
             let nativeMethod = try #require(class_getInstanceMethod(applicationClass, selector))
             let appKitMethod = try #require(class_getInstanceMethod(NSApplication.self, selector))

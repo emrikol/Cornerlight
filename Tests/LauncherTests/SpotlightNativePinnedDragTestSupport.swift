@@ -24,10 +24,7 @@ private func makePinnedReorderSurface(
         host.collectionView.perform(NSSelectorFromString("controller"))?
             .takeUnretainedValue(),
     )
-    let resultsController = try #require(
-        host.viewController.perform(NSSelectorFromString("resultsViewController"))?
-            .takeUnretainedValue(),
-    )
+    let resultsController = try #require(nativeResultsController(in: host))
     let sections = try #require(
         resultsController.perform(NSSelectorFromString("sections"))?
             .takeUnretainedValue() as? NSArray,

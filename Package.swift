@@ -25,10 +25,16 @@ let package = Package(
         .executableTarget(
             name: "Cornerlight",
             dependencies: [
+                "SpotlightBridge",
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Launcher",
             swiftSettings: releaseSettings,
+        ),
+        .target(
+            name: "SpotlightBridge",
+            path: "Sources/SpotlightBridge",
+            publicHeadersPath: "include",
         ),
         .testTarget(
             name: "CornerlightTests",

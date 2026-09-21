@@ -131,6 +131,7 @@ struct LauncherPinningUserStoryTests {
     }
 
     @Test @MainActor
+    // swiftlint:disable:next function_body_length
     func `native pinned tiles carry Spotlights TLK badge while recents do not`() throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
@@ -151,10 +152,10 @@ struct LauncherPinningUserStoryTests {
         #expect(host.hasNativePinnedBadgeHook)
         let surface = try NativeCollectionTestSurface(host: host)
         let pinnedItem = try #require(
-            surface.collectionView.item(at: IndexPath(item: 0, section: 0)),
+            surface.item(at: IndexPath(item: 0, section: 0)),
         )
         let recentItem = try #require(
-            surface.collectionView.item(at: IndexPath(item: 1, section: 0)),
+            surface.item(at: IndexPath(item: 1, section: 0)),
         )
         let pinnedImage = try #require(
             firstNativeDescendant(named: "SearchUIImageView", in: pinnedItem.view),
@@ -162,15 +163,37 @@ struct LauncherPinningUserStoryTests {
         let recentImage = try #require(
             firstNativeDescendant(named: "SearchUIImageView", in: recentItem.view),
         )
-        let badge = try #require(
-            pinnedImage.perform(NSSelectorFromString("badgeImageView"))?
-                .takeUnretainedValue() as? NSView,
+        let imageClass: AnyClass = try #require(NSClassFromString("TLKImage"))
+        let sourceImage = try #require(
+            NSImage(systemSymbolName: "app", accessibilityDescription: nil),
         )
-        let recentBadge = recentImage.perform(NSSelectorFromString("badgeImageView"))?
-            .takeUnretainedValue() as? NSView
+        for imageView in [pinnedImage, recentImage] {
+            let allocated = try #require(
+                (imageClass as AnyObject).perform(NSSelectorFromString("alloc"))?
+                    .takeUnretainedValue(),
+            )
+            let tlkImage = try #require(
+                allocated.perform(
+                    NSSelectorFromString("initWithImage:"),
+                    with: sourceImage,
+                )?.takeRetainedValue(),
+            )
+            _ = imageView.perform(NSSelectorFromString("setTlkImage:"), with: tlkImage)
+        }
+        host.nativeItemWillDisplay(pinnedItem, at: NSIndexPath(forItem: 0, inSection: 0))
+        host.nativeItemWillDisplay(recentItem, at: NSIndexPath(forItem: 1, inSection: 0))
+        let pinnedTLKImage = try #require(
+            pinnedImage.perform(NSSelectorFromString("tlkImage"))?.takeUnretainedValue(),
+        )
+        let recentTLKImage = try #require(
+            recentImage.perform(NSSelectorFromString("tlkImage"))?.takeUnretainedValue(),
+        )
+        let badge = pinnedTLKImage.perform(NSSelectorFromString("badgeImage"))?
+            .takeUnretainedValue()
+        let recentBadge = recentTLKImage.perform(NSSelectorFromString("badgeImage"))?
+            .takeUnretainedValue()
 
-        #expect(NSStringFromClass(type(of: badge)) == "SearchUIImageView")
-        #expect(badge.frame.size == NSSize(width: 16, height: 16))
+        #expect(badge != nil)
         #expect(recentBadge == nil)
 
         pinnedPaths.removeAll()
@@ -178,12 +201,12 @@ struct LauncherPinningUserStoryTests {
             pinnedItem,
             at: NSIndexPath(forItem: 0, inSection: 0),
         )
-        let clearedBadge = pinnedImage.perform(NSSelectorFromString("badgeImageView"))?
-            .takeUnretainedValue()
-        #expect(
-            clearedBadge?.perform(NSSelectorFromString("tlkImage"))?
-                .takeUnretainedValue() == nil,
+        let clearedTLKImage = try #require(
+            pinnedImage.perform(NSSelectorFromString("tlkImage"))?.takeUnretainedValue(),
         )
+        let clearedBadge = clearedTLKImage.perform(NSSelectorFromString("badgeImage"))?
+            .takeUnretainedValue()
+        #expect(clearedBadge == nil)
     }
 
     @Test @MainActor

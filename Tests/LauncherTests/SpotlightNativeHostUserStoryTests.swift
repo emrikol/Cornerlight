@@ -2,14 +2,28 @@ import AppKit
 @testable import Cornerlight
 import Testing
 
+// swiftlint:disable file_length
+
 @Suite(.serialized)
 // The suite audits one version-pinned native Spotlight ownership boundary.
 // swiftlint:disable:next type_body_length
 struct SpotlightNativeHostUserStoryTests {
     @Test @MainActor
-    func `native app browse invocation is owned by Spotlights actual app delegate`() throws {
+    func `native app browse invocation is owned by Spotlights actual runtime graph`() throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
+
+        if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
+            #expect(NSStringFromClass(type(of: host.appDelegate)) == "SpotlightAppMacOS.AppDelegate")
+            let manager = try #require(
+                nativeObjectIvar(named: "windowManager", on: host.appDelegate) as? NSObject,
+            )
+            #expect(NSStringFromClass(type(of: manager)) == "SpotlightUIInternal.WindowManager")
+            #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
+            #expect(host.panel.windowController != nil)
+            #expect(!host.isPresented)
+            return
+        }
 
         #expect(NSStringFromClass(type(of: host.appDelegate)) == "SPAppDelegate")
         #expect(
@@ -43,6 +57,13 @@ struct SpotlightNativeHostUserStoryTests {
         typealias BoolSetter = @convention(c) (AnyObject, Selector, Bool) -> Void
         typealias BoolGetter = @convention(c) (AnyObject, Selector) -> Bool
 
+        if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
+            #expect(!host.appDelegate.responds(to: setter))
+            #expect(!host.appDelegate.responds(to: getter))
+            host.prepareForWindowServerInvocation()
+            return
+        }
+
         #expect(host.appDelegate.responds(to: setter))
         #expect(host.appDelegate.responds(to: getter))
         unsafeBitCast(host.appDelegate.method(for: setter), to: BoolSetter.self)(
@@ -73,21 +94,27 @@ struct SpotlightNativeHostUserStoryTests {
         let host = try #require(SpotlightNativeLauncherUI())
         let mainWindowController = try #require(host.panel.windowController)
 
-        #expect(
-            NSStringFromClass(type(of: host.viewController)) ==
-                "SpotlightAppMacOS.SearchViewController",
-        )
-        #expect(
-            NSStringFromClass(type(of: host.searchField)) ==
-                "SpotlightAppMacOS.SearchField",
-        )
-        #expect(
-            NSStringFromClass(type(of: host.panel)) == "SPSpotlightPanel",
-        )
-        #expect(
-            NSStringFromClass(type(of: mainWindowController)) ==
-                "SpotlightAppMacOS.MainWindowController",
-        )
+        let usesInternalFramework = SpotlightExecutableRuntime.generation == .spotlightUIInternal
+        #expect(NSStringFromClass(type(of: host.viewController)) == (usesInternalFramework
+                ? "SpotlightUIInternal.SearchViewController"
+                : "SpotlightAppMacOS.SearchViewController"))
+        #expect(NSStringFromClass(type(of: host.searchField)) == (usesInternalFramework
+                ? "SpotlightUIInternal.SearchField"
+                : "SpotlightAppMacOS.SearchField"))
+        #expect(NSStringFromClass(type(of: host.panel)) == (usesInternalFramework
+                ? "SpotlightUIInternal.FluidWindow"
+                : "SPSpotlightPanel"))
+        #expect(NSStringFromClass(type(of: mainWindowController)) == (usesInternalFramework
+                ? "SpotlightUIInternal.MainWindowController"
+                : "SpotlightAppMacOS.MainWindowController"))
+        if usesInternalFramework {
+            #expect(
+                mainWindowController.responds(
+                    to: NSSelectorFromString("windowShouldClose:"),
+                ),
+            )
+            return
+        }
         #expect(
             mainWindowController.responds(
                 to: NSSelectorFromString(
@@ -117,9 +144,12 @@ struct SpotlightNativeHostUserStoryTests {
     func `enumerated inventory never exposes Spotlights indexing status`() throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
-        let indexingView = try #require(
-            firstDescendant(named: "SPSpotlightIndexingView", in: host.view),
-        )
+        let indexingView = try #require(firstDescendant(
+            named: SpotlightExecutableRuntime.generation == .spotlightUIInternal
+                ? "SPUISpotlightIndexingView"
+                : "SPSpotlightIndexingView",
+            in: host.view,
+        ))
         let setter = NSSelectorFromString("setEligibleToView:")
         let getter = NSSelectorFromString("eligibleToView")
         typealias BoolSetter = @convention(c) (AnyObject, Selector, Bool) -> Void
@@ -180,18 +210,17 @@ struct SpotlightNativeHostUserStoryTests {
         }
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let resultsController = try #require(
-            host.viewController
-                .perform(NSSelectorFromString("resultsViewController"))?
-                .takeUnretainedValue() as? NSObject,
-        )
+        let resultsController = try #require(nativeResultsController(in: host) as? NSObject)
         let sections = try #require(
             resultsController
                 .perform(NSSelectorFromString("sections"))?
                 .takeUnretainedValue() as? NSArray,
         )
 
-        #expect(NSStringFromClass(type(of: resultsController)) == "SpotlightAppMacOS.SearchResultsViewController")
+        #expect(NSStringFromClass(type(of: resultsController)) ==
+            (SpotlightExecutableRuntime.generation == .spotlightUIInternal
+                ? "SpotlightUIInternal.SearchResultsViewController"
+                : "SpotlightAppMacOS.SearchResultsViewController"))
         #expect(sections.count == 1)
 
         _ = resultsController.perform(
@@ -205,9 +234,12 @@ struct SpotlightNativeHostUserStoryTests {
         )
         #expect(restoredSections.count == 1)
 
-        let queryFilterBar = try #require(
-            firstDescendant(named: "SpotlightAppMacOS.QueryFilterBarView", in: host.view),
-        )
+        let queryFilterBar = try #require(firstDescendant(
+            named: SpotlightExecutableRuntime.generation == .spotlightUIInternal
+                ? "SpotlightUIInternal.QueryFilterBarView"
+                : "SpotlightAppMacOS.QueryFilterBarView",
+            in: host.view,
+        ))
         #expect(queryFilterBar.isHidden)
     }
 
@@ -235,9 +267,11 @@ struct SpotlightNativeHostUserStoryTests {
         #expect(item.state == .off)
 
         let updateSelector = NSSelectorFromString("update")
-        let nativeMenuClass: AnyClass = try #require(
-            NSClassFromString("_TtC17SpotlightAppMacOS15ViewOptionsMenu"),
-        )
+        let nativeMenuClass: AnyClass = try #require(NSClassFromString(
+            SpotlightExecutableRuntime.generation == .spotlightUIInternal
+                ? "_TtC19SpotlightUIInternal15ViewOptionsMenu"
+                : "_TtC17SpotlightAppMacOS15ViewOptionsMenu",
+        ))
         let nativeUpdate = try #require(class_getInstanceMethod(nativeMenuClass, updateSelector))
         let appKitUpdate = try #require(class_getInstanceMethod(NSMenu.self, updateSelector))
         #expect(method_getImplementation(nativeUpdate) != method_getImplementation(appKitUpdate))

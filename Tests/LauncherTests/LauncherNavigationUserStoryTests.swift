@@ -12,7 +12,9 @@ struct LauncherNavigationUserStoryTests {
 
         #expect(
             NSStringFromClass(type(of: controller)) ==
-                "SpotlightAppMacOS.MainWindowController",
+                (SpotlightExecutableRuntime.generation == .spotlightUIInternal
+                    ? "SpotlightUIInternal.MainWindowController"
+                    : "SpotlightAppMacOS.MainWindowController"),
         )
         #expect(controller.window === host.panel)
         #expect(host.panel.contentViewController != nil)
