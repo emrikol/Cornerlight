@@ -36,7 +36,7 @@ struct LauncherUserStoryTests {
         #expect(
             LauncherRuntimeStartupPolicy.action(
                 spotlightRuntimeAvailable: true,
-                automaticallyChecksForUpdates: false,
+                automaticallyChecksForUpdates: true,
             ) == .launch,
         )
     }

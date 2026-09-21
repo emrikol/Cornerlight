@@ -1269,6 +1269,7 @@ enum SpotlightExecutableRuntime {
 
     private static var handles: [UnsafeMutableRawPointer] = []
     private static var attemptedLoad = false
+    private(set) static var requiresCompatibilityRecovery = false
 
     static var isLoaded: Bool {
         loadDependencies()
@@ -1309,6 +1310,7 @@ enum SpotlightExecutableRuntime {
               .takeUnretainedValue() as? NSApplication,
               NSStringFromClass(type(of: application)) == "SPApplication"
         else {
+            requiresCompatibilityRecovery = true
             CornerlightTrace.lifecycle.error(
                 "Spotlight application runtime unavailable; starting update recovery",
             )
@@ -2062,6 +2064,19 @@ struct SpotlightNativeTransitionGate {
     }
 }
 
+struct SpotlightResultsPresentationPrimingState {
+    private(set) var hasPrimed = false
+
+    mutating func beginIfNeeded(
+        isRequired: Bool,
+        supportsNativeTransition: Bool,
+    ) -> Bool {
+        guard isRequired, supportsNativeTransition, !hasPrimed else { return false }
+        hasPrimed = true
+        return true
+    }
+}
+
 struct LauncherContentLease {
     private(set) var isLoaded = false
 
@@ -2197,7 +2212,6 @@ final class SpotlightNativeLauncherUI {
         Int,
         @convention(block) () -> Void,
     ) -> Void
-
     let panel: NSPanel
     let viewController: NSViewController
     let searchField: NSSearchField
@@ -2239,6 +2253,8 @@ final class SpotlightNativeLauncherUI {
     private var showsHiddenApplications = false
     private var dismissalCallbackScheduled = false
     private var retainsContentForQueuedPresentation = false
+    private var isPrimingMacOS27ResultsPresentation = false
+    private var resultsPresentationPrimingState = SpotlightResultsPresentationPrimingState()
     private var transitionGate = SpotlightNativeTransitionGate()
     private var lifecycleLease = SpotlightNativeLifecycleLease()
     private lazy var pinnedBadgeImage = Self.makePinnedBadgeImage()
@@ -2704,6 +2720,7 @@ final class SpotlightNativeLauncherUI {
                 resolveNativeTransition(transitionGate.expire(token))
                 return
             }
+            primeMacOS27ResultsPresentationIfNeeded()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self, transitionGate.isCurrent(token) else { return }
                 lifecycleLease.completeNativeInvocation(token)
@@ -2919,6 +2936,7 @@ final class SpotlightNativeLauncherUI {
     }
 
     func nativeQueryDidChange() {
+        guard !isPrimingMacOS27ResultsPresentation else { return }
         onQueryChange?()
     }
 
@@ -3428,6 +3446,28 @@ final class SpotlightNativeLauncherUI {
             Self.call(true, on: viewController, selector: "goToAppsSearchWithResetQuery:")
         }
         searchField.stringValue = ""
+    }
+
+    private func primeMacOS27ResultsPresentationIfNeeded() {
+        let selector = NSSelectorFromString("insertText:")
+        guard resultsPresentationPrimingState.beginIfNeeded(
+            isRequired: runtimeGeneration == .spotlightUIInternal,
+            supportsNativeTransition: viewController.responds(to: selector),
+        )
+        else { return }
+
+        isPrimingMacOS27ResultsPresentation = true
+        defer { isPrimingMacOS27ResultsPresentation = false }
+
+        // macOS 27's SearchSizingCoordinator ignores the initial app-browse content while its
+        // empty query is still classified as static. A native text transition establishes the
+        // dynamic results host; clearing the visible field synchronously keeps presentation
+        // queryless and lets CornerLight install its full catalog exactly once.
+        _ = viewController.perform(selector, with: "a" as NSString)
+        searchField.stringValue = ""
+        Self.setObject("" as NSString, on: resultsController, selector: "setQueryString:")
+        Self.setObject("" as NSString, on: topHitResultsController, selector: "setQueryString:")
+        restoreEnumeratedSections()
     }
 
     func purgeMemory() {
@@ -4817,15 +4857,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var compatibilityRecoveryStatusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_: Notification) {
-        LauncherProcessLifetimePolicy.makeResident {
-            ProcessInfo.processInfo.disableAutomaticTermination($0)
-        }
-        let updater = updaterController.updater
-        let runtimeAction = LauncherRuntimeStartupPolicy.action(
-            spotlightRuntimeAvailable: SpotlightExecutableRuntime.isLoaded,
-            automaticallyChecksForUpdates: updater.automaticallyChecksForUpdates,
-        )
-        guard runtimeAction == .launch else {
+        if SpotlightExecutableRuntime.requiresCompatibilityRecovery {
+            LauncherProcessLifetimePolicy.makeResident {
+                ProcessInfo.processInfo.disableAutomaticTermination($0)
+            }
+            let runtimeAction = LauncherRuntimeStartupPolicy.action(
+                spotlightRuntimeAvailable: false,
+                automaticallyChecksForUpdates: updaterController.updater
+                    .automaticallyChecksForUpdates,
+            )
             enterCompatibilityRecovery(action: runtimeAction)
             return
         }
@@ -4842,6 +4882,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        LauncherProcessLifetimePolicy.makeResident {
+            ProcessInfo.processInfo.disableAutomaticTermination($0)
+        }
         let directoryMonitor = ApplicationCatalogDirectoryMonitor(
             roots: ApplicationCatalog.defaultRoots,
         ) { [weak self] in
@@ -4858,6 +4901,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         observer.start()
         recentApplicationObserver = observer
         installHotCorner()
+        _ = updaterController
 
         // An explicit launch should show the UI. Login-item launches remain quiet.
         if LauncherStartupPolicy.shouldShowLauncher(

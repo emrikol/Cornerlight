@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-21
+
+- Initialize macOS 27's dynamic Spotlight results host on the first app-browser presentation so a cold launch no longer collapses the application grid to zero height.
+- Run Sparkle independently after compatible launcher services start, while retaining updater-first recovery when a future macOS version changes the private Spotlight runtime.
+
 ## [0.1.5] - 2026-09-21
 
 - Keep Cornerlight's updater available when a future macOS release changes the private Spotlight runtime, automatically checking when permitted and otherwise offering an explicit recovery update check.

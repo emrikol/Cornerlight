@@ -20,6 +20,7 @@ struct SpotlightNativeHostUserStoryTests {
             )
             #expect(NSStringFromClass(type(of: manager)) == "SpotlightUIInternal.WindowManager")
             #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
+            #expect(host.viewController.responds(to: NSSelectorFromString("insertText:")))
             #expect(host.panel.windowController != nil)
             #expect(!host.isPresented)
             return
