@@ -2,9 +2,14 @@
 
 ## [Unreleased]
 
-## [0.1.10] - 2026-09-22
+## [0.1.11] - 2026-09-22
 
 - Prewarm macOS 27's applications-only window state before the first Hot Corner invocation so Spotlight cannot replace CornerLight's populated results surface with its empty 87-point placeholder.
+- Retry bounded notarization uploads during release packaging so a stalled Apple connection cannot consume the entire release job.
+
+## [0.1.10] - 2026-09-22
+
+- Superseded before publication.
 
 ## [0.1.9] - 2026-09-22
 

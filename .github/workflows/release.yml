@@ -42,7 +42,7 @@ jobs:
     permissions:
       contents: write
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 120
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
@@ -105,14 +105,78 @@ jobs:
           NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
           NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
         run: |
+          run_with_deadline() {
+            local deadline="$1"
+            shift
+
+            "$@" &
+            local command_pid=$!
+            (
+              sleep "$deadline"
+              if kill -0 "$command_pid" 2>/dev/null; then
+                echo "Notary upload exceeded ${deadline}s; terminating it for a retry" >&2
+                kill -TERM "$command_pid" 2>/dev/null || true
+                sleep 5
+                kill -KILL "$command_pid" 2>/dev/null || true
+              fi
+            ) &
+            local watchdog_pid=$!
+
+            set +e
+            wait "$command_pid"
+            local status=$?
+            set -e
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+            return "$status"
+          }
+
+          notarize_artifact() {
+            local artifact="$1"
+            local response
+            response="$(mktemp "$RUNNER_TEMP/notary-response.XXXXXX.plist")"
+            local submission_id=""
+
+            for attempt in 1 2 3; do
+              local transport=()
+              if (( attempt > 1 )); then
+                transport+=(--no-s3-acceleration)
+              fi
+
+              echo "Uploading $artifact for notarization (attempt $attempt of 3)"
+              if run_with_deadline 300 xcrun notarytool submit "$artifact" \
+                --apple-id "$NOTARIZATION_APPLE_ID" \
+                --team-id "$NOTARIZATION_TEAM_ID" \
+                --password "$NOTARIZATION_PASSWORD" \
+                --no-wait \
+                --output-format plist \
+                "${transport[@]}" > "$response"; then
+                submission_id="$(/usr/libexec/PlistBuddy -c 'Print :id' "$response")"
+                if [[ -n "$submission_id" ]]; then
+                  break
+                fi
+              fi
+              echo "Notary upload attempt $attempt failed before returning a submission ID" >&2
+            done
+
+            rm -f -- "$response"
+            if [[ -z "$submission_id" ]]; then
+              echo "Unable to submit $artifact for notarization after 3 attempts" >&2
+              return 1
+            fi
+
+            echo "Waiting for notarization submission $submission_id"
+            xcrun notarytool wait "$submission_id" \
+              --apple-id "$NOTARIZATION_APPLE_ID" \
+              --team-id "$NOTARIZATION_TEAM_ID" \
+              --password "$NOTARIZATION_PASSWORD" \
+              --timeout 50m
+          }
+
           APP="$RUNNER_TEMP/cornerlight-distribution/Cornerlight.app"
           SUBMISSION_ZIP="$RUNNER_TEMP/Cornerlight-notarization.zip"
           ditto -c -k --keepParent "$APP" "$SUBMISSION_ZIP"
-          xcrun notarytool submit "$SUBMISSION_ZIP" \
-            --apple-id "$NOTARIZATION_APPLE_ID" \
-            --team-id "$NOTARIZATION_TEAM_ID" \
-            --password "$NOTARIZATION_PASSWORD" \
-            --wait
+          notarize_artifact "$SUBMISSION_ZIP"
           xcrun stapler staple "$APP"
           xcrun stapler validate "$APP"
           spctl --assess --type execute --verbose=2 "$APP"
@@ -123,11 +187,7 @@ jobs:
           ln -s /Applications dmg-root/Applications
           hdiutil create -volname Cornerlight -srcfolder dmg-root -ov -format UDZO release/Cornerlight.dmg
           codesign --force --timestamp --sign "$CORNERLIGHT_SIGN_IDENTITY" release/Cornerlight.dmg
-          xcrun notarytool submit release/Cornerlight.dmg \
-            --apple-id "$NOTARIZATION_APPLE_ID" \
-            --team-id "$NOTARIZATION_TEAM_ID" \
-            --password "$NOTARIZATION_PASSWORD" \
-            --wait
+          notarize_artifact release/Cornerlight.dmg
           xcrun stapler staple release/Cornerlight.dmg
           xcrun stapler validate release/Cornerlight.dmg
           spctl --assess --type open --context context:primary-signature --verbose=2 release/Cornerlight.dmg
