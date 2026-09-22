@@ -2073,19 +2073,6 @@ struct SpotlightNativeTransitionGate {
     }
 }
 
-struct SpotlightResultsPresentationPrimingState {
-    private(set) var hasPrimed = false
-
-    mutating func beginIfNeeded(
-        isRequired: Bool,
-        supportsNativeTransition: Bool,
-    ) -> Bool {
-        guard isRequired, supportsNativeTransition, !hasPrimed else { return false }
-        hasPrimed = true
-        return true
-    }
-}
-
 struct LauncherContentLease {
     private(set) var isLoaded = false
 
@@ -2210,6 +2197,21 @@ final class SpotlightNativeLauncherUI {
     ) -> Unmanaged<AnyObject>?
     private typealias BoolSetter = @convention(c) (AnyObject, Selector, Bool) -> Void
     private typealias BoolGetter = @convention(c) (AnyObject, Selector) -> Bool
+    private typealias SnapshotBuilder = @convention(c) (
+        AnyObject,
+        Selector,
+        NSArray,
+        UInt,
+    ) -> Unmanaged<AnyObject>?
+    private typealias SnapshotCompletion = @convention(block) () -> Void
+    private typealias SnapshotUpdater = @convention(c) (
+        AnyObject,
+        Selector,
+        AnyObject,
+        UInt,
+        Bool,
+        SnapshotCompletion,
+    ) -> Void
     private typealias CompletionAction = @convention(c) (
         AnyObject,
         Selector,
@@ -2225,7 +2227,7 @@ final class SpotlightNativeLauncherUI {
     let viewController: NSViewController
     let searchField: NSSearchField
     let appDelegate: NSObject
-    let collectionView: NSCollectionView
+    private(set) var collectionView: NSCollectionView
 
     var onQueryChange: (() -> Void)?
     var onNativeDismiss: (() -> Void)?
@@ -2243,11 +2245,12 @@ final class SpotlightNativeLauncherUI {
     private let mainWindowController: AnyObject
     private let topHitResultsController: AnyObject
     private let resultsController: AnyObject
+    private let resultsContainerController: NSViewController?
     private let menuItem: AnyObject
     private let sessionAnalytics: AnyObject
     private let windowManager: AnyObject?
     private let runtimeGeneration: SpotlightExecutableRuntime.Generation
-    let prewarmedAppsBrowsing: Bool
+    let restoresAppsBrowsingResults: Bool
     private let menuActionTarget: SpotlightNativeMenuActionTarget
     private let searchFieldObserver: SpotlightNativeSearchFieldObserver
     private let systemToggleObserver: SpotlightSystemToggleObserver
@@ -2263,8 +2266,7 @@ final class SpotlightNativeLauncherUI {
     private var showsHiddenApplications = false
     private var dismissalCallbackScheduled = false
     private var retainsContentForQueuedPresentation = false
-    private var isPrimingMacOS27ResultsPresentation = false
-    private var resultsPresentationPrimingState = SpotlightResultsPresentationPrimingState()
+    private var snapshotQueryID: UInt = 0
     private var transitionGate = SpotlightNativeTransitionGate()
     private var lifecycleLease = SpotlightNativeLifecycleLease()
     private lazy var pinnedBadgeImage = Self.makePinnedBadgeImage()
@@ -2424,11 +2426,12 @@ final class SpotlightNativeLauncherUI {
         searchField = field
         self.collectionView = collectionView
         resultsController = results
+        resultsContainerController = nil
         self.menuItem = menuItem
         self.sessionAnalytics = sessionAnalytics
         windowManager = nil
         runtimeGeneration = .spotlightAppMacOS
-        prewarmedAppsBrowsing = false
+        restoresAppsBrowsingResults = false
         let menuActionTarget = SpotlightNativeMenuActionTarget()
         self.menuActionTarget = menuActionTarget
         let searchFieldObserver = SpotlightNativeSearchFieldObserver()
@@ -2583,6 +2586,9 @@ final class SpotlightNativeLauncherUI {
                   in: resultsViewController.view,
               ),
               NSStringFromClass(type(of: collectionView)) == "SearchUICollectionView",
+              let resultsContainerController = results.perform(
+                  NSSelectorFromString("sizingDelegate"),
+              )?.takeUnretainedValue() as? NSViewController,
               let topHitResultsController = Self.firstDescendantResponder(
                   named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
                   in: initialized.view,
@@ -2611,11 +2617,12 @@ final class SpotlightNativeLauncherUI {
         searchField = field
         self.collectionView = collectionView
         resultsController = results
+        self.resultsContainerController = resultsContainerController
         self.menuItem = menuItem
         self.sessionAnalytics = sessionAnalytics
         windowManager = manager
         runtimeGeneration = .spotlightUIInternal
-        prewarmedAppsBrowsing = true
+        restoresAppsBrowsingResults = true
         let menuActionTarget = SpotlightNativeMenuActionTarget()
         self.menuActionTarget = menuActionTarget
         let searchFieldObserver = SpotlightNativeSearchFieldObserver()
@@ -2685,24 +2692,6 @@ final class SpotlightNativeLauncherUI {
         searchField.placeholderString = "Applications"
         installMacOS27LauncherChrome()
 
-        // Prewarm the applications-only window state only after retaining and hooking the
-        // populated results controller. Otherwise macOS 27 performs this transition during the
-        // user's first invocation, replaces that controller with EmptyViewController, and clamps
-        // the panel to its 87-point header. This narrow path does not initialize the general
-        // Spotlight provider pipeline.
-        guard CornerlightSpotlightLaunchAppsBrowsing(managerPointer) else {
-            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: apps prewarm")
-            _ = CornerlightSpotlightDismissAll(managerPointer)
-            panel.orderOut(nil)
-            panel.alphaValue = originalAlphaValue
-            return nil
-        }
-        RunLoop.current.run(
-            mode: .default,
-            before: Date(timeIntervalSinceNow: 0.05),
-        )
-        searchField.placeholderString = "Applications"
-
         _ = CornerlightSpotlightDismissAll(managerPointer)
         panel.orderOut(nil)
         panel.alphaValue = originalAlphaValue
@@ -2749,10 +2738,13 @@ final class SpotlightNativeLauncherUI {
                 resolveNativeTransition(transitionGate.expire(token))
                 return
             }
+            restoreMacOS27ResultsSurface()
+            refreshMacOS27LiveCollectionView()
             installMacOS27LauncherChrome()
-            restoreMacOS27ResultsSurfaceIfNeeded()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self, transitionGate.isCurrent(token) else { return }
+                restoreMacOS27ResultsSurface()
+                refreshMacOS27LiveCollectionView()
                 installMacOS27LauncherChrome()
                 lifecycleLease.completeNativeInvocation(token)
                 nativeTransitionDidComplete(token)
@@ -2960,6 +2952,7 @@ final class SpotlightNativeLauncherUI {
             currentSuggestionSections + currentCatalogSections,
             on: resultsController,
         )
+        applyMacOS27EnumeratedSnapshot()
     }
 
     func nativeSectionsWereProposed() {
@@ -2967,7 +2960,6 @@ final class SpotlightNativeLauncherUI {
     }
 
     func nativeQueryDidChange() {
-        guard !isPrimingMacOS27ResultsPresentation else { return }
         onQueryChange?()
     }
 
@@ -3525,27 +3517,124 @@ final class SpotlightNativeLauncherUI {
         ])
     }
 
-    private func restoreMacOS27ResultsSurfaceIfNeeded() {
-        let selector = NSSelectorFromString("insertText:")
-        guard resultsPresentationPrimingState.beginIfNeeded(
-            isRequired: runtimeGeneration == .spotlightUIInternal,
-            supportsNativeTransition: viewController.responds(to: selector),
-        )
+    private func restoreMacOS27ResultsSurface() {
+        guard runtimeGeneration == .spotlightUIInternal,
+              let resultsContainerController,
+              let pageView = Self.firstDescendantView(
+                  withNextResponderNamed: "SpotlightUIInternal.SearchPageController",
+                  in: viewController.view,
+              )
+        else {
+            CornerlightTrace.lifecycle.error("macOS 27 results page is unavailable")
+            return
+        }
+
+        let resultsSurface = resultsContainerController.view
+        if resultsSurface.superview !== pageView {
+            pageView.subviews.forEach { $0.removeFromSuperview() }
+            resultsSurface.removeFromSuperview()
+            resultsSurface.translatesAutoresizingMaskIntoConstraints = false
+            resultsSurface.isHidden = false
+            pageView.addSubview(resultsSurface)
+            NSLayoutConstraint.activate([
+                resultsSurface.leadingAnchor.constraint(equalTo: pageView.leadingAnchor),
+                resultsSurface.trailingAnchor.constraint(equalTo: pageView.trailingAnchor),
+                resultsSurface.topAnchor.constraint(equalTo: pageView.topAnchor),
+                resultsSurface.bottomAnchor.constraint(equalTo: pageView.bottomAnchor),
+            ])
+            CornerlightTrace.lifecycle.notice("restored live macOS 27 results surface")
+        }
+        restoreEnumeratedSections()
+        pageView.layoutSubtreeIfNeeded()
+    }
+
+    private func refreshMacOS27LiveCollectionView() {
+        guard runtimeGeneration == .spotlightUIInternal,
+              Self.firstDescendantResponder(
+                  named: "SpotlightUIInternal.SearchResultsViewController",
+                  in: viewController.view,
+              ) != nil,
+              let liveCollectionView = Self.firstDescendant(
+                  of: NSCollectionView.self,
+                  in: viewController.view,
+              ),
+              NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView"
         else { return }
 
-        isPrimingMacOS27ResultsPresentation = true
-        defer { isPrimingMacOS27ResultsPresentation = false }
-
-        // macOS 27's SearchSizingCoordinator ignores the initial app-browse content while its
-        // empty query is still classified as static. A native text transition establishes the
-        // dynamic results host; clearing the visible field synchronously keeps presentation
-        // queryless and lets CornerLight install its full catalog exactly once.
-        _ = viewController.perform(selector, with: "a" as NSString)
-        searchField.stringValue = ""
-        searchField.placeholderString = "Applications"
-        Self.setObject("" as NSString, on: resultsController, selector: "setQueryString:")
-        Self.setObject("" as NSString, on: topHitResultsController, selector: "setQueryString:")
+        if liveCollectionView !== collectionView {
+            collectionView = liveCollectionView
+            CornerlightTrace.lifecycle.notice("adopted live macOS 27 results collection")
+        }
+        let hookResults = [
+            (
+                "context-menu",
+                SpotlightNativeContextMenuHook.install(on: liveCollectionView, owner: self),
+            ),
+            (
+                "pinned-reorder",
+                SpotlightNativePinnedReorderHook.install(on: liveCollectionView, owner: self),
+            ),
+            (
+                "pinned-badge",
+                SpotlightNativePinnedBadgeHook.install(on: liveCollectionView, owner: self),
+            ),
+        ]
+        let failedHooks = hookResults.compactMap { name, installed in installed ? nil : name }
+        if !failedHooks.isEmpty {
+            CornerlightTrace.lifecycle.error(
+                "macOS 27 live collection hooks failed: \(failedHooks.joined(separator: ","), privacy: .public)",
+            )
+        }
         restoreEnumeratedSections()
+    }
+
+    private func applyMacOS27EnumeratedSnapshot() {
+        let buildSelector = NSSelectorFromString("buildSnapshotFromResultSections:queryId:")
+        let updateSelector = NSSelectorFromString(
+            "updateWithSnapshot:queryId:animated:completion:",
+        )
+        guard runtimeGeneration == .spotlightUIInternal,
+              let builderClass = NSClassFromString("SearchUIDataSourceSnapshotBuilder"),
+              let builder = (builderClass as AnyObject)
+              .perform(NSSelectorFromString("new"))?
+              .takeRetainedValue(),
+              let collectionController = collectionView
+              .perform(NSSelectorFromString("controller"))?
+              .takeUnretainedValue(),
+              builder.responds(to: buildSelector),
+              collectionController.responds(to: updateSelector)
+        else {
+            CornerlightTrace.lifecycle.error("macOS 27 results snapshot API is unavailable")
+            return
+        }
+
+        snapshotQueryID &+= 1
+        guard let snapshot = unsafeBitCast(
+            builder.method(for: buildSelector),
+            to: SnapshotBuilder.self,
+        )(
+            builder,
+            buildSelector,
+            (currentSuggestionSections + currentCatalogSections) as NSArray,
+            snapshotQueryID,
+        )?.takeUnretainedValue()
+        else {
+            CornerlightTrace.lifecycle.error("macOS 27 results snapshot creation failed")
+            return
+        }
+
+        let completion: SnapshotCompletion = {}
+        unsafeBitCast(
+            collectionController.method(for: updateSelector),
+            to: SnapshotUpdater.self,
+        )(
+            collectionController,
+            updateSelector,
+            snapshot,
+            snapshotQueryID,
+            false,
+            completion,
+        )
     }
 
     func purgeMemory() {
@@ -3668,6 +3757,25 @@ final class SpotlightNativeLauncherUI {
         }
         for subview in root.subviews {
             if let match = firstDescendantResponder(named: className, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private static func firstDescendantView(
+        withNextResponderNamed className: String,
+        in root: NSView,
+    ) -> NSView? {
+        if let responder = root.nextResponder,
+           NSStringFromClass(type(of: responder)) == className {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = firstDescendantView(
+                withNextResponderNamed: className,
+                in: subview,
+            ) {
                 return match
             }
         }

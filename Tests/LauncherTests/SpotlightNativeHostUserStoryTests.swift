@@ -21,7 +21,7 @@ struct SpotlightNativeHostUserStoryTests {
             #expect(NSStringFromClass(type(of: manager)) == "SpotlightUIInternal.WindowManager")
             #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
             #expect(host.viewController.responds(to: NSSelectorFromString("insertText:")))
-            #expect(host.prewarmedAppsBrowsing)
+            #expect(host.restoresAppsBrowsingResults)
             #expect(host.panel.windowController != nil)
             #expect(host.viewController.view.layer?.cornerRadius == 43)
             let backdrop = try #require(
@@ -39,7 +39,7 @@ struct SpotlightNativeHostUserStoryTests {
         }
 
         #expect(NSStringFromClass(type(of: host.appDelegate)) == "SPAppDelegate")
-        #expect(!host.prewarmedAppsBrowsing)
+        #expect(!host.restoresAppsBrowsingResults)
         #expect(
             host.appDelegate.responds(
                 to: NSSelectorFromString("launchAppsBrowsingWithCompletion:"),
@@ -60,6 +60,52 @@ struct SpotlightNativeHostUserStoryTests {
         )
         #expect(ownedController === host.panel.windowController)
         #expect(!host.isPresented)
+    }
+
+    @Test @MainActor
+    func `presentation keeps enumerated results in Spotlights live hierarchy`() throws {
+        _ = NSApplication.shared
+        let host = try #require(SpotlightNativeLauncherUI())
+        let originalAlphaValue = host.panel.alphaValue
+        host.panel.alphaValue = 0
+        defer {
+            host.dismiss()
+            host.panel.orderOut(nil)
+            host.panel.alphaValue = originalAlphaValue
+        }
+
+        host.update(
+            suggestions: [],
+            applications: [
+                ApplicationRecord(
+                    name: "Calculator",
+                    url: URL(fileURLWithPath: "/System/Applications/Calculator.app"),
+                ),
+            ],
+        )
+        host.invoke()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+
+        let resultsClassName = SpotlightExecutableRuntime.generation == .spotlightUIInternal
+            ? "SpotlightUIInternal.SearchResultsViewController"
+            : "SpotlightAppMacOS.SearchResultsViewController"
+        let liveResultsController = try #require(
+            nativeResponder(named: resultsClassName, in: host.view),
+        )
+        let liveCollectionView = try #require(
+            nativeDescendant(named: "SearchUICollectionView", in: host.view)
+                as? NSCollectionView,
+        )
+
+        #expect(liveResultsController === host.retainedNativeResultsController)
+        #expect(liveCollectionView === host.retainedNativeCollectionView)
+        let sectionCount = liveCollectionView.numberOfSections
+        #expect(sectionCount > 0)
+        if sectionCount > 0 {
+            #expect(liveCollectionView.numberOfItems(inSection: 0) > 0)
+        }
+        #expect(host.panel.frame.height > 87)
+        #expect(host.isPresented)
     }
 
     @Test @MainActor

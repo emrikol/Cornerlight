@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-09-22
+
+- Keep macOS 27, including Siri AI Beta, on Spotlight's applications-only window state while restoring CornerLight's live results container and collection snapshot after the native transition, preventing the header-only placeholder without initializing unrelated providers such as Photos.
+
 ## [0.1.11] - 2026-09-22
 
 - Prewarm macOS 27's applications-only window state before the first Hot Corner invocation so Spotlight cannot replace CornerLight's populated results surface with its empty 87-point placeholder.
