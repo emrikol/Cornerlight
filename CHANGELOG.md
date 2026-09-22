@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
-## [0.1.9] - 2026-09-22
+## [0.1.10] - 2026-09-22
 
 - Prewarm macOS 27's applications-only window state before the first Hot Corner invocation so Spotlight cannot replace CornerLight's populated results surface with its empty 87-point placeholder.
+
+## [0.1.9] - 2026-09-22
+
+- Superseded before publication.
 
 ## [0.1.8] - 2026-09-22
 

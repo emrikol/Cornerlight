@@ -262,7 +262,7 @@ struct SpotlightNativeHostUserStoryTests {
         } else {
             let queryFilterBar = try #require(firstDescendant(
                 named: "SpotlightAppMacOS.QueryFilterBarView",
-                in: resultsController.view,
+                in: host.view,
             ))
             #expect(queryFilterBar.isHidden)
         }
