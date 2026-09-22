@@ -106,10 +106,7 @@ final class NativeCollectionTestSurface {
 
 @MainActor
 func nativeApplicationContextMenu(in host: SpotlightNativeLauncherUI) throws -> NSMenu {
-    let collectionView = try #require(
-        nativeDescendant(named: "SearchUICollectionView", in: host.view)
-            as? NSCollectionView,
-    )
+    let collectionView = host.retainedNativeCollectionView
     let installedCollectionController = try #require(
         collectionView.perform(NSSelectorFromString("controller"))?.takeUnretainedValue(),
     )
@@ -197,10 +194,10 @@ func nativeResultsController(in host: SpotlightNativeLauncherUI) -> AnyObject? {
     if host.viewController.responds(to: selector) {
         return host.viewController.perform(selector)?.takeUnretainedValue()
     }
-    return nativeResponder(
-        named: "SpotlightUIInternal.SearchResultsViewController",
-        in: host.view,
-    )
+    if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
+        return host.retainedNativeResultsController
+    }
+    return nativeResponder(named: "SpotlightAppMacOS.SearchResultsViewController", in: host.view)
 }
 
 func nativeObjectIvar(named name: String, on object: AnyObject) -> AnyObject? {

@@ -39,10 +39,7 @@ struct SpotlightNativeRecentsUserStoryTests {
         let aboveFilterController: AnyObject
         let scrollingResultsController: AnyObject
         if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
-            aboveFilterController = try #require(nativeResponder(
-                named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
-                in: host.view,
-            ))
+            aboveFilterController = host.retainedNativeTopHitResultsController
             scrollingResultsController = try #require(nativeResultsController(in: host))
         } else {
             let navigationControllers = try #require(

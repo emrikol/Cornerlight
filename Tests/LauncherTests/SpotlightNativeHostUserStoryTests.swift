@@ -21,6 +21,7 @@ struct SpotlightNativeHostUserStoryTests {
             #expect(NSStringFromClass(type(of: manager)) == "SpotlightUIInternal.WindowManager")
             #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
             #expect(host.viewController.responds(to: NSSelectorFromString("insertText:")))
+            #expect(host.prewarmedAppsBrowsing)
             #expect(host.panel.windowController != nil)
             #expect(host.viewController.view.layer?.cornerRadius == 43)
             let backdrop = try #require(
@@ -38,6 +39,7 @@ struct SpotlightNativeHostUserStoryTests {
         }
 
         #expect(NSStringFromClass(type(of: host.appDelegate)) == "SPAppDelegate")
+        #expect(!host.prewarmedAppsBrowsing)
         #expect(
             host.appDelegate.responds(
                 to: NSSelectorFromString("launchAppsBrowsingWithCompletion:"),
@@ -199,6 +201,7 @@ struct SpotlightNativeHostUserStoryTests {
     }
 
     @Test @MainActor
+    // swiftlint:disable:next function_body_length
     func `enumerated applications cross only Spotlights native result section boundary`() throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
@@ -222,7 +225,9 @@ struct SpotlightNativeHostUserStoryTests {
         }
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let resultsController = try #require(nativeResultsController(in: host) as? NSObject)
+        let resultsController = try #require(
+            nativeResultsController(in: host) as? NSViewController,
+        )
         let sections = try #require(
             resultsController
                 .perform(NSSelectorFromString("sections"))?
@@ -246,13 +251,21 @@ struct SpotlightNativeHostUserStoryTests {
         )
         #expect(restoredSections.count == 1)
 
-        let queryFilterBar = try #require(firstDescendant(
-            named: SpotlightExecutableRuntime.generation == .spotlightUIInternal
-                ? "SpotlightUIInternal.QueryFilterBarView"
-                : "SpotlightAppMacOS.QueryFilterBarView",
-            in: host.view,
-        ))
-        #expect(queryFilterBar.isHidden)
+        if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
+            let selector = NSSelectorFromString("isBelowVisibleFilterBar")
+            typealias BoolGetter = @convention(c) (AnyObject, Selector) -> Bool
+            #expect(resultsController.responds(to: selector))
+            #expect(!unsafeBitCast(resultsController.method(for: selector), to: BoolGetter.self)(
+                resultsController,
+                selector,
+            ))
+        } else {
+            let queryFilterBar = try #require(firstDescendant(
+                named: "SpotlightAppMacOS.QueryFilterBarView",
+                in: resultsController.view,
+            ))
+            #expect(queryFilterBar.isHidden)
+        }
     }
 
     @Test @MainActor

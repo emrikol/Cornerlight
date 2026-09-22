@@ -2247,6 +2247,7 @@ final class SpotlightNativeLauncherUI {
     private let sessionAnalytics: AnyObject
     private let windowManager: AnyObject?
     private let runtimeGeneration: SpotlightExecutableRuntime.Generation
+    let prewarmedAppsBrowsing: Bool
     private let menuActionTarget: SpotlightNativeMenuActionTarget
     private let searchFieldObserver: SpotlightNativeSearchFieldObserver
     private let systemToggleObserver: SpotlightSystemToggleObserver
@@ -2427,6 +2428,7 @@ final class SpotlightNativeLauncherUI {
         self.sessionAnalytics = sessionAnalytics
         windowManager = nil
         runtimeGeneration = .spotlightAppMacOS
+        prewarmedAppsBrowsing = false
         let menuActionTarget = SpotlightNativeMenuActionTarget()
         self.menuActionTarget = menuActionTarget
         let searchFieldObserver = SpotlightNativeSearchFieldObserver()
@@ -2547,9 +2549,8 @@ final class SpotlightNativeLauncherUI {
             return nil
         }
 
-        // Bootstrap creates the search state synchronously, while SwiftUI installs its AppKit
-        // controller surface on the next run-loop turn. Keep the panel ordered out while that
-        // native hierarchy materializes so startup never flashes Spotlight.
+        // Keep the panel invisible while Spotlight's controller surface materializes so startup
+        // never flashes its window.
         let originalAlphaValue = panel.alphaValue
         panel.alphaValue = 0
         let controllerDeadline = Date(timeIntervalSinceNow: 0.5)
@@ -2614,6 +2615,7 @@ final class SpotlightNativeLauncherUI {
         self.sessionAnalytics = sessionAnalytics
         windowManager = manager
         runtimeGeneration = .spotlightUIInternal
+        prewarmedAppsBrowsing = true
         let menuActionTarget = SpotlightNativeMenuActionTarget()
         self.menuActionTarget = menuActionTarget
         let searchFieldObserver = SpotlightNativeSearchFieldObserver()
@@ -2683,6 +2685,24 @@ final class SpotlightNativeLauncherUI {
         searchField.placeholderString = "Applications"
         installMacOS27LauncherChrome()
 
+        // Prewarm the applications-only window state only after retaining and hooking the
+        // populated results controller. Otherwise macOS 27 performs this transition during the
+        // user's first invocation, replaces that controller with EmptyViewController, and clamps
+        // the panel to its 87-point header. This narrow path does not initialize the general
+        // Spotlight provider pipeline.
+        guard CornerlightSpotlightLaunchAppsBrowsing(managerPointer) else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: apps prewarm")
+            _ = CornerlightSpotlightDismissAll(managerPointer)
+            panel.orderOut(nil)
+            panel.alphaValue = originalAlphaValue
+            return nil
+        }
+        RunLoop.current.run(
+            mode: .default,
+            before: Date(timeIntervalSinceNow: 0.05),
+        )
+        searchField.placeholderString = "Applications"
+
         _ = CornerlightSpotlightDismissAll(managerPointer)
         panel.orderOut(nil)
         panel.alphaValue = originalAlphaValue
@@ -2730,7 +2750,7 @@ final class SpotlightNativeLauncherUI {
                 return
             }
             installMacOS27LauncherChrome()
-            primeMacOS27ResultsPresentationIfNeeded()
+            restoreMacOS27ResultsSurfaceIfNeeded()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self, transitionGate.isCurrent(token) else { return }
                 installMacOS27LauncherChrome()
@@ -3035,11 +3055,19 @@ final class SpotlightNativeLauncherUI {
     }
 
     var hasNativeApplicationContextMenuHook: Bool {
-        guard let collectionView = Self.firstDescendant(
-            of: NSCollectionView.self,
-            in: viewController.view,
-        ) else { return false }
-        return SpotlightNativeContextMenuHook.isInstalled(on: collectionView)
+        SpotlightNativeContextMenuHook.isInstalled(on: collectionView)
+    }
+
+    var retainedNativeResultsController: AnyObject {
+        resultsController
+    }
+
+    var retainedNativeTopHitResultsController: AnyObject {
+        topHitResultsController
+    }
+
+    var retainedNativeCollectionView: NSCollectionView {
+        collectionView
     }
 
     var hasNativePinnedReorderHook: Bool {
@@ -3497,7 +3525,7 @@ final class SpotlightNativeLauncherUI {
         ])
     }
 
-    private func primeMacOS27ResultsPresentationIfNeeded() {
+    private func restoreMacOS27ResultsSurfaceIfNeeded() {
         let selector = NSSelectorFromString("insertText:")
         guard resultsPresentationPrimingState.beginIfNeeded(
             isRequired: runtimeGeneration == .spotlightUIInternal,
@@ -3514,6 +3542,7 @@ final class SpotlightNativeLauncherUI {
         // queryless and lets CornerLight install its full catalog exactly once.
         _ = viewController.perform(selector, with: "a" as NSString)
         searchField.stringValue = ""
+        searchField.placeholderString = "Applications"
         Self.setObject("" as NSString, on: resultsController, selector: "setQueryString:")
         Self.setObject("" as NSString, on: topHitResultsController, selector: "setQueryString:")
         restoreEnumeratedSections()
