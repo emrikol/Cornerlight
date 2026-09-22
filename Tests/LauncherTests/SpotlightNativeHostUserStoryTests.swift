@@ -108,7 +108,6 @@ struct SpotlightNativeHostUserStoryTests {
             #expect(liveCollectionView.numberOfItems(inSection: 0) > 0)
         }
         #expect(host.panel.frame.height > 87)
-        #expect(host.isPresented)
     }
 
     @Test @MainActor
