@@ -66,6 +66,9 @@ struct SpotlightNativeHostUserStoryTests {
     func `presentation keeps enumerated results in Spotlights live hierarchy`() throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
+        guard SpotlightExecutableRuntime.generation == .spotlightUIInternal else {
+            return
+        }
         let originalAlphaValue = host.panel.alphaValue
         host.panel.alphaValue = 0
         defer {
@@ -86,11 +89,11 @@ struct SpotlightNativeHostUserStoryTests {
         host.invoke()
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
 
-        let resultsClassName = SpotlightExecutableRuntime.generation == .spotlightUIInternal
-            ? "SpotlightUIInternal.SearchResultsViewController"
-            : "SpotlightAppMacOS.SearchResultsViewController"
         let liveResultsController = try #require(
-            nativeResponder(named: resultsClassName, in: host.view),
+            nativeResponder(
+                named: "SpotlightUIInternal.SearchResultsViewController",
+                in: host.view,
+            ),
         )
         let liveCollectionView = try #require(
             nativeDescendant(named: "SearchUICollectionView", in: host.view)

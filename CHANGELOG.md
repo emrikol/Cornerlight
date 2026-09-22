@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
-## [0.1.12] - 2026-09-22
+## [0.1.13] - 2026-09-22
 
 - Keep macOS 27, including Siri AI Beta, on Spotlight's applications-only window state while restoring CornerLight's live results container and collection snapshot after the native transition, preventing the header-only placeholder without initializing unrelated providers such as Photos.
+
+## [0.1.12] - 2026-09-22
+
+- Superseded before publication.
 
 ## [0.1.11] - 2026-09-22
 
