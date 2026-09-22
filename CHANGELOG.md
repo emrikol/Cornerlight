@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-09-22
+
+- Keep macOS 27 on Spotlight's applications-only presentation path so CornerLight never initializes unrelated providers such as Photos, while supplying the rounded material background that path no longer draws itself.
+
 ## [0.1.7] - 2026-09-22
 
 - Present macOS 27's launcher through the native Spotlight window state and clear its query model before each invocation, restoring the rounded background and preventing a previous search from leaving the launcher expanded.

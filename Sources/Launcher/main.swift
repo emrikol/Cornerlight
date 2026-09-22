@@ -1472,6 +1472,15 @@ private final class SpotlightNativePanelHookBridge: NSObject {
 }
 
 @MainActor
+private final class CornerlightLauncherBackdropView: NSVisualEffectView {
+    static let identifier = NSUserInterfaceItemIdentifier("CornerlightLauncherBackdrop")
+
+    override func hitTest(_: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+@MainActor
 private enum SpotlightNativePanelHook {
     private typealias OrderOut = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
 
@@ -2478,8 +2487,9 @@ final class SpotlightNativeLauncherUI {
 
     // macOS 27 moved Spotlight's controller construction into
     // SpotlightUIInternal.WindowManager. Its public Objective-C initializer is a trap, so
-    // construct it through Spotlight's real AppDelegate and use the native presentation entry
-    // point that the system Spotlight executable calls.
+    // construct it through Spotlight's real AppDelegate and bootstrap its controller graph. Do
+    // not present the general Spotlight state: that initializes unrelated search providers (and
+    // can request permissions such as Photo Library access) that an app launcher never needs.
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private init?(spotlightUIInternal _: Void) {
         guard let appDelegateClass = NSClassFromString(
@@ -2519,18 +2529,10 @@ final class SpotlightNativeLauncherUI {
         }
         Self.setObject(manager, on: menuItem, selector: "setDelegate:")
         Self.setObject(manager, on: menuItem, selector: "setFocusRetentionProvider:")
-        let presentSelector = NSSelectorFromString("presentSpotlightWithCompletionHandler:")
-        guard CornerlightSpotlightBootstrap(managerPointer),
-              manager.responds(to: presentSelector)
-        else {
+        guard CornerlightSpotlightBootstrap(managerPointer) else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: WindowManager entry points")
             return nil
         }
-        let preparationCompletion: @convention(block) () -> Void = {}
-        unsafeBitCast(
-            manager.method(for: presentSelector),
-            to: CompletionAction.self,
-        )(manager, presentSelector, preparationCompletion)
 
         guard let panel = NSApp.windows.reversed().first(where: {
             guard !existingWindows.contains(ObjectIdentifier($0)) else { return false }
@@ -2545,7 +2547,7 @@ final class SpotlightNativeLauncherUI {
             return nil
         }
 
-        // Presentation creates the search state synchronously, while SwiftUI installs its AppKit
+        // Bootstrap creates the search state synchronously, while SwiftUI installs its AppKit
         // controller surface on the next run-loop turn. Keep the panel ordered out while that
         // native hierarchy materializes so startup never flashes Spotlight.
         let originalAlphaValue = panel.alphaValue
@@ -2679,6 +2681,7 @@ final class SpotlightNativeLauncherUI {
             suspensionBehavior: .deliverImmediately,
         )
         searchField.placeholderString = "Applications"
+        installMacOS27LauncherChrome()
 
         _ = CornerlightSpotlightDismissAll(managerPointer)
         panel.orderOut(nil)
@@ -2720,22 +2723,20 @@ final class SpotlightNativeLauncherUI {
         prepareForWindowServerInvocation()
         scheduleTransitionRecovery(for: token, operation: "presentation")
         if let windowManager {
-            let selector = NSSelectorFromString("presentSpotlightWithCompletionHandler:")
-            guard windowManager.responds(to: selector) else {
+            let managerPointer = Unmanaged.passUnretained(windowManager).toOpaque()
+            guard CornerlightSpotlightLaunchAppsBrowsing(managerPointer) else {
                 lifecycleLease.completeNativeInvocation(token)
                 resolveNativeTransition(transitionGate.expire(token))
                 return
             }
-            let completionBlock: @convention(block) () -> Void = { [weak self] in
-                guard let self else { return }
+            installMacOS27LauncherChrome()
+            primeMacOS27ResultsPresentationIfNeeded()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self, transitionGate.isCurrent(token) else { return }
+                installMacOS27LauncherChrome()
                 lifecycleLease.completeNativeInvocation(token)
                 nativeTransitionDidComplete(token)
             }
-            unsafeBitCast(
-                windowManager.method(for: selector),
-                to: CompletionAction.self,
-            )(windowManager, selector, completionBlock)
-            primeMacOS27ResultsPresentationIfNeeded()
             return
         }
         let selector = NSSelectorFromString("launchAppsBrowsingWithCompletion:")
@@ -3461,6 +3462,39 @@ final class SpotlightNativeLauncherUI {
             }
         }
         searchField.stringValue = ""
+    }
+
+    private func installMacOS27LauncherChrome() {
+        guard runtimeGeneration == .spotlightUIInternal else { return }
+
+        let surface = viewController.view
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = 43
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.masksToBounds = true
+
+        if let existing = Self.firstDescendant(
+            named: NSStringFromClass(CornerlightLauncherBackdropView.self),
+            in: surface,
+        ) as? CornerlightLauncherBackdropView {
+            existing.isHidden = false
+            return
+        }
+
+        let backdrop = CornerlightLauncherBackdropView()
+        backdrop.identifier = CornerlightLauncherBackdropView.identifier
+        backdrop.material = .hudWindow
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .active
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.setAccessibilityElement(false)
+        surface.addSubview(backdrop, positioned: .below, relativeTo: surface.subviews.first)
+        NSLayoutConstraint.activate([
+            backdrop.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
+            backdrop.topAnchor.constraint(equalTo: surface.topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+        ])
     }
 
     private func primeMacOS27ResultsPresentationIfNeeded() {

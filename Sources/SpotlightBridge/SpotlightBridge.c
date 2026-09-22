@@ -7,6 +7,12 @@ typedef void __attribute__((swiftcall)) (*SwiftInstanceMethod)(
     void *self __attribute__((swift_context))
 );
 
+typedef void __attribute__((swiftcall)) (*SwiftOptionalCompletionInstanceMethod)(
+    void *completion,
+    void *completionContext,
+    void *self __attribute__((swift_context))
+);
+
 bool CornerlightSpotlightBootstrap(void *windowManager) {
     static SwiftInstanceMethod bootstrap;
     if (bootstrap == NULL) {
@@ -19,6 +25,21 @@ bool CornerlightSpotlightBootstrap(void *windowManager) {
         return false;
     }
     bootstrap(windowManager);
+    return true;
+}
+
+bool CornerlightSpotlightLaunchAppsBrowsing(void *windowManager) {
+    static SwiftOptionalCompletionInstanceMethod launch;
+    if (launch == NULL) {
+        launch = (SwiftOptionalCompletionInstanceMethod)dlsym(
+            RTLD_DEFAULT,
+            "$s19SpotlightUIInternal13WindowManagerC18launchAppsBrowsing10completionyyycSg_tF"
+        );
+    }
+    if (launch == NULL || windowManager == NULL) {
+        return false;
+    }
+    launch(NULL, NULL, windowManager);
     return true;
 }
 

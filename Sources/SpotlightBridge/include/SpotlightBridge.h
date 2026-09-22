@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 bool CornerlightSpotlightBootstrap(void *windowManager);
+bool CornerlightSpotlightLaunchAppsBrowsing(void *windowManager);
 bool CornerlightSpotlightDismissAll(void *windowManager);
 bool CornerlightSpotlightClearSearch(void *searchViewController);
 

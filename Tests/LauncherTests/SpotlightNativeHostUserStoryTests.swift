@@ -22,6 +22,17 @@ struct SpotlightNativeHostUserStoryTests {
             #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
             #expect(host.viewController.responds(to: NSSelectorFromString("insertText:")))
             #expect(host.panel.windowController != nil)
+            #expect(host.viewController.view.layer?.cornerRadius == 43)
+            let backdrop = try #require(
+                nativeFirstDescendant(
+                    identifiedBy: "CornerlightLauncherBackdrop",
+                    in: host.viewController.view,
+                ) as? NSVisualEffectView,
+            )
+            host.viewController.view.layoutSubtreeIfNeeded()
+            #expect(backdrop.material == .hudWindow)
+            #expect(backdrop.blendingMode == .behindWindow)
+            #expect(backdrop.frame == host.viewController.view.bounds)
             #expect(!host.isPresented)
             return
         }

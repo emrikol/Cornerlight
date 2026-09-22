@@ -2,6 +2,19 @@ import AppKit
 @testable import Cornerlight
 import Testing
 
+@MainActor
+func nativeFirstDescendant(
+    identifiedBy identifier: String,
+    in view: NSView,
+) -> NSView? {
+    if view.identifier?.rawValue == identifier {
+        return view
+    }
+    return view.subviews.lazy.compactMap {
+        nativeFirstDescendant(identifiedBy: identifier, in: $0)
+    }.first
+}
+
 private typealias SnapshotBuilder = @convention(c) (
     AnyObject,
     Selector,
