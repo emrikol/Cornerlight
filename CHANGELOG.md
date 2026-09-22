@@ -2,11 +2,15 @@
 
 ## [Unreleased]
 
-## [0.1.15] - 2026-09-22
+## [0.1.16] - 2026-09-22
 
 - Support both macOS 27 Spotlight and the Siri AI Beta launcher runtime, using each system runtime's native window and controller hierarchy.
 - Keep pinned, recent, and catalog applications in Spotlight's single scrolling results surface and preserve Spotlight's native rounded-corner scrollbar insets after layout.
 - Restore Cornerlight's Settings action in Spotlight's overflow menu while keeping update checks available independently of launcher compatibility.
+
+## [0.1.15] - 2026-09-22
+
+- Superseded before publication.
 
 ## [0.1.14] - 2026-09-22
 

@@ -149,9 +149,11 @@ struct SpotlightNativeRecentsUserStoryTests {
         scrollingViewController.view.frame = NSRect(x: 0, y: 0, width: 844, height: 475)
         collectionView.collectionViewLayout?.invalidateLayout()
         scrollingViewController.view.layoutSubtreeIfNeeded()
-        let scrollView = try #require(collectionView.enclosingScrollView)
-        #expect(scrollView.scrollerInsets.top == 37)
-        #expect(scrollView.scrollerInsets.bottom == 37)
+        if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
+            let scrollView = try #require(collectionView.enclosingScrollView)
+            #expect(scrollView.scrollerInsets.top == 37)
+            #expect(scrollView.scrollerInsets.bottom == 37)
+        }
         let separator = try #require(
             firstDescendant(
                 named: "_TtGC8SearchUI24SupplementaryHostingViewVS_9Separator_",
