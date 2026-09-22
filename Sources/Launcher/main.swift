@@ -1472,15 +1472,6 @@ private final class SpotlightNativePanelHookBridge: NSObject {
 }
 
 @MainActor
-private final class CornerlightLauncherBackdropView: NSVisualEffectView {
-    static let identifier = NSUserInterfaceItemIdentifier("CornerlightLauncherBackdrop")
-
-    override func hitTest(_: NSPoint) -> NSView? {
-        nil
-    }
-}
-
-@MainActor
 private enum SpotlightNativePanelHook {
     private typealias OrderOut = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
 
@@ -2212,6 +2203,13 @@ final class SpotlightNativeLauncherUI {
         Bool,
         SnapshotCompletion,
     ) -> Void
+    private typealias PreferredContentSizeNotifier = @convention(c) (
+        AnyObject,
+        Selector,
+        AnyObject,
+        NSSize,
+        Bool,
+    ) -> Void
     private typealias CompletionAction = @convention(c) (
         AnyObject,
         Selector,
@@ -2243,9 +2241,8 @@ final class SpotlightNativeLauncherUI {
     var onQuit: (() -> Void)?
 
     private let mainWindowController: AnyObject
-    private let topHitResultsController: AnyObject
-    private let resultsController: AnyObject
-    private let resultsContainerController: NSViewController?
+    private var topHitResultsController: AnyObject
+    private var resultsController: AnyObject
     private let menuItem: AnyObject
     private let sessionAnalytics: AnyObject
     private let windowManager: AnyObject?
@@ -2426,7 +2423,6 @@ final class SpotlightNativeLauncherUI {
         searchField = field
         self.collectionView = collectionView
         resultsController = results
-        resultsContainerController = nil
         self.menuItem = menuItem
         self.sessionAnalytics = sessionAnalytics
         windowManager = nil
@@ -2586,9 +2582,6 @@ final class SpotlightNativeLauncherUI {
                   in: resultsViewController.view,
               ),
               NSStringFromClass(type(of: collectionView)) == "SearchUICollectionView",
-              let resultsContainerController = results.perform(
-                  NSSelectorFromString("sizingDelegate"),
-              )?.takeUnretainedValue() as? NSViewController,
               let topHitResultsController = Self.firstDescendantResponder(
                   named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
                   in: initialized.view,
@@ -2617,7 +2610,6 @@ final class SpotlightNativeLauncherUI {
         searchField = field
         self.collectionView = collectionView
         resultsController = results
-        self.resultsContainerController = resultsContainerController
         self.menuItem = menuItem
         self.sessionAnalytics = sessionAnalytics
         windowManager = manager
@@ -2690,7 +2682,16 @@ final class SpotlightNativeLauncherUI {
             suspensionBehavior: .deliverImmediately,
         )
         searchField.placeholderString = "Applications"
-        installMacOS27LauncherChrome()
+
+        let searchControllerPointer = Unmanaged.passUnretained(initialized).toOpaque()
+        guard CornerlightSpotlightCaptureSearchResultsRoot(searchControllerPointer) else {
+            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: native results root")
+            _ = CornerlightSpotlightDismissAll(managerPointer)
+            panel.orderOut(nil)
+            panel.alphaValue = originalAlphaValue
+            NSStatusBar.system.removeStatusItem(statusItem)
+            return nil
+        }
 
         _ = CornerlightSpotlightDismissAll(managerPointer)
         panel.orderOut(nil)
@@ -2738,14 +2739,27 @@ final class SpotlightNativeLauncherUI {
                 resolveNativeTransition(transitionGate.expire(token))
                 return
             }
-            restoreMacOS27ResultsSurface()
+            let searchControllerPointer = Unmanaged.passUnretained(viewController).toOpaque()
+            guard CornerlightSpotlightRestoreSearchResultsRoot(searchControllerPointer) else {
+                CornerlightTrace.lifecycle.error("macOS 27 native results root restore failed")
+                _ = CornerlightSpotlightDismissAll(managerPointer)
+                lifecycleLease.completeNativeInvocation(token)
+                resolveNativeTransition(transitionGate.expire(token))
+                return
+            }
             refreshMacOS27LiveCollectionView()
-            installMacOS27LauncherChrome()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self, transitionGate.isCurrent(token) else { return }
-                restoreMacOS27ResultsSurface()
+                let searchControllerPointer = Unmanaged.passUnretained(viewController).toOpaque()
+                guard CornerlightSpotlightRestoreSearchResultsRoot(searchControllerPointer) else {
+                    CornerlightTrace.lifecycle.error(
+                        "macOS 27 delayed native results root restore failed",
+                    )
+                    lifecycleLease.completeNativeInvocation(token)
+                    resolveNativeTransition(transitionGate.expire(token))
+                    return
+                }
                 refreshMacOS27LiveCollectionView()
-                installMacOS27LauncherChrome()
                 lifecycleLease.completeNativeInvocation(token)
                 nativeTransitionDidComplete(token)
             }
@@ -3484,83 +3498,23 @@ final class SpotlightNativeLauncherUI {
         searchField.stringValue = ""
     }
 
-    private func installMacOS27LauncherChrome() {
-        guard runtimeGeneration == .spotlightUIInternal else { return }
-
-        let surface = viewController.view
-        surface.wantsLayer = true
-        surface.layer?.cornerRadius = 43
-        surface.layer?.cornerCurve = .continuous
-        surface.layer?.masksToBounds = true
-
-        if let existing = Self.firstDescendant(
-            named: NSStringFromClass(CornerlightLauncherBackdropView.self),
-            in: surface,
-        ) as? CornerlightLauncherBackdropView {
-            existing.isHidden = false
-            return
-        }
-
-        let backdrop = CornerlightLauncherBackdropView()
-        backdrop.identifier = CornerlightLauncherBackdropView.identifier
-        backdrop.material = .hudWindow
-        backdrop.blendingMode = .behindWindow
-        backdrop.state = .active
-        backdrop.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.setAccessibilityElement(false)
-        surface.addSubview(backdrop, positioned: .below, relativeTo: surface.subviews.first)
-        NSLayoutConstraint.activate([
-            backdrop.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
-            backdrop.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-            backdrop.topAnchor.constraint(equalTo: surface.topAnchor),
-            backdrop.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
-        ])
-    }
-
-    private func restoreMacOS27ResultsSurface() {
-        guard runtimeGeneration == .spotlightUIInternal,
-              let resultsContainerController,
-              let pageView = Self.firstDescendantView(
-                  withNextResponderNamed: "SpotlightUIInternal.SearchPageController",
-                  in: viewController.view,
-              )
-        else {
-            CornerlightTrace.lifecycle.error("macOS 27 results page is unavailable")
-            return
-        }
-
-        let resultsSurface = resultsContainerController.view
-        if resultsSurface.superview !== pageView {
-            pageView.subviews.forEach { $0.removeFromSuperview() }
-            resultsSurface.removeFromSuperview()
-            resultsSurface.translatesAutoresizingMaskIntoConstraints = false
-            resultsSurface.isHidden = false
-            pageView.addSubview(resultsSurface)
-            NSLayoutConstraint.activate([
-                resultsSurface.leadingAnchor.constraint(equalTo: pageView.leadingAnchor),
-                resultsSurface.trailingAnchor.constraint(equalTo: pageView.trailingAnchor),
-                resultsSurface.topAnchor.constraint(equalTo: pageView.topAnchor),
-                resultsSurface.bottomAnchor.constraint(equalTo: pageView.bottomAnchor),
-            ])
-            CornerlightTrace.lifecycle.notice("restored live macOS 27 results surface")
-        }
-        restoreEnumeratedSections()
-        pageView.layoutSubtreeIfNeeded()
-    }
-
     private func refreshMacOS27LiveCollectionView() {
         guard runtimeGeneration == .spotlightUIInternal,
-              Self.firstDescendantResponder(
+              let liveResultsController = Self.firstDescendantResponder(
                   named: "SpotlightUIInternal.SearchResultsViewController",
                   in: viewController.view,
-              ) != nil,
+              ),
+              let liveResultsViewController = liveResultsController as? NSViewController,
               let liveCollectionView = Self.firstDescendant(
                   of: NSCollectionView.self,
-                  in: viewController.view,
+                  in: liveResultsViewController.view,
               ),
               NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView"
         else { return }
 
+        guard adoptMacOS27ResultsController(liveResultsController),
+              adoptMacOS27TopHitResultsController()
+        else { return }
         if liveCollectionView !== collectionView {
             collectionView = liveCollectionView
             CornerlightTrace.lifecycle.notice("adopted live macOS 27 results collection")
@@ -3588,6 +3542,45 @@ final class SpotlightNativeLauncherUI {
         restoreEnumeratedSections()
     }
 
+    private func adoptMacOS27ResultsController(_ liveResultsController: AnyObject) -> Bool {
+        guard liveResultsController !== resultsController else { return true }
+        resultsController = liveResultsController
+        Self.set(true, on: liveResultsController, selector: "setSingleClickExecutesCommands:")
+        Self.set(false, on: liveResultsController, selector: "setIsBelowVisibleFilterBar:")
+        Self.setObject(
+            searchField.stringValue as NSString,
+            on: liveResultsController,
+            selector: "setQueryString:",
+        )
+        guard SpotlightNativeSectionsHook.install(
+            on: liveResultsController,
+            owner: self,
+        ) else {
+            CornerlightTrace.lifecycle.error("macOS 27 live results hook failed")
+            return false
+        }
+        CornerlightTrace.lifecycle.notice("adopted live macOS 27 results controller")
+        return true
+    }
+
+    private func adoptMacOS27TopHitResultsController() -> Bool {
+        guard let liveController = Self.firstDescendantResponder(
+            named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
+            in: viewController.view,
+        ), liveController !== topHitResultsController else { return true }
+        topHitResultsController = liveController
+        Self.setObject(
+            searchField.stringValue as NSString,
+            on: liveController,
+            selector: "setQueryString:",
+        )
+        guard SpotlightNativeSectionsHook.install(on: liveController, owner: self) else {
+            CornerlightTrace.lifecycle.error("macOS 27 live top-hit results hook failed")
+            return false
+        }
+        return true
+    }
+
     private func applyMacOS27EnumeratedSnapshot() {
         let buildSelector = NSSelectorFromString("buildSnapshotFromResultSections:queryId:")
         let updateSelector = NSSelectorFromString(
@@ -3609,6 +3602,7 @@ final class SpotlightNativeLauncherUI {
         }
 
         snapshotQueryID &+= 1
+        let queryID = snapshotQueryID
         guard let snapshot = unsafeBitCast(
             builder.method(for: buildSelector),
             to: SnapshotBuilder.self,
@@ -3616,7 +3610,7 @@ final class SpotlightNativeLauncherUI {
             builder,
             buildSelector,
             (currentSuggestionSections + currentCatalogSections) as NSArray,
-            snapshotQueryID,
+            queryID,
         )?.takeUnretainedValue()
         else {
             CornerlightTrace.lifecycle.error("macOS 27 results snapshot creation failed")
@@ -3631,10 +3625,71 @@ final class SpotlightNativeLauncherUI {
             collectionController,
             updateSelector,
             snapshot,
-            snapshotQueryID,
+            queryID,
             false,
             completion,
         )
+        scheduleMacOS27PreferredContentSizeSync()
+    }
+
+    private func scheduleMacOS27PreferredContentSizeSync(
+        attemptsRemaining: Int = 60,
+    ) {
+        guard !notifyMacOS27PreferredContentSizeChanged(),
+              attemptsRemaining > 0,
+              panel.isVisible
+        else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.scheduleMacOS27PreferredContentSizeSync(
+                attemptsRemaining: attemptsRemaining - 1,
+            )
+        }
+    }
+
+    @discardableResult
+    private func notifyMacOS27PreferredContentSizeChanged() -> Bool {
+        let selector = NSSelectorFromString(
+            "resultsViewController:preferredContentSizeDidChange:animated:",
+        )
+        guard runtimeGeneration == .spotlightUIInternal,
+              let controller = resultsController as? NSViewController,
+              controller.preferredContentSize.height > 0,
+              let container = resultsController.perform(
+                  NSSelectorFromString("sizingDelegate"),
+              )?.takeUnretainedValue() as? NSViewController,
+              container.responds(to: selector)
+        else { return false }
+
+        container.preferredContentSize = controller.preferredContentSize
+        unsafeBitCast(
+            container.method(for: selector),
+            to: PreferredContentSizeNotifier.self,
+        )(
+            container,
+            selector,
+            resultsController,
+            controller.preferredContentSize,
+            false,
+        )
+
+        guard let pageController = Self.firstDescendantResponder(
+            named: "SpotlightUIInternal.SearchPageController",
+            in: viewController.view,
+        ) as? NSPageController else { return false }
+        let headerHeight = pageController.view.frame.minY + 1
+        let pageSize = NSSize(
+            width: pageController.view.frame.width,
+            height: controller.preferredContentSize.height,
+        )
+        pageController.preferredContentSize = pageSize
+        panel.setContentSize(
+            NSSize(width: pageSize.width, height: headerHeight + pageSize.height),
+        )
+        pageController.completeTransition()
+        pageController.selectedViewController?.view.isHidden = false
+        pageController.view.layoutSubtreeIfNeeded()
+        guard let selectedView = pageController.selectedViewController?.view else { return false }
+        return !selectedView.isHidden && selectedView.frame.height > 1
     }
 
     func purgeMemory() {

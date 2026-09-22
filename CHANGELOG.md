@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-09-22
+
+- Restore macOS 27's native Spotlight results navigation root after the applications-only launch transition, then attach CornerLight's app index to the live native results controller so the grid remains populated across reopenings.
+- Remove CornerLight's substitute HUD backdrop and leave the launcher window, liquid-glass materials, layout, and animations to Spotlight.
+
 ## [0.1.13] - 2026-09-22
 
 - Keep macOS 27, including Siri AI Beta, on Spotlight's applications-only window state while restoring CornerLight's live results container and collection snapshot after the native transition, preventing the header-only placeholder without initializing unrelated providers such as Photos.

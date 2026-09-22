@@ -23,17 +23,12 @@ struct SpotlightNativeHostUserStoryTests {
             #expect(host.viewController.responds(to: NSSelectorFromString("insertText:")))
             #expect(host.restoresAppsBrowsingResults)
             #expect(host.panel.windowController != nil)
-            #expect(host.viewController.view.layer?.cornerRadius == 43)
-            let backdrop = try #require(
+            #expect(
                 nativeFirstDescendant(
                     identifiedBy: "CornerlightLauncherBackdrop",
                     in: host.viewController.view,
-                ) as? NSVisualEffectView,
+                ) == nil,
             )
-            host.viewController.view.layoutSubtreeIfNeeded()
-            #expect(backdrop.material == .hudWindow)
-            #expect(backdrop.blendingMode == .behindWindow)
-            #expect(backdrop.frame == host.viewController.view.bounds)
             #expect(!host.isPresented)
             return
         }
@@ -63,6 +58,7 @@ struct SpotlightNativeHostUserStoryTests {
     }
 
     @Test @MainActor
+    // swiftlint:disable:next function_body_length
     func `presentation keeps enumerated results in Spotlights live hierarchy`() throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
@@ -87,16 +83,24 @@ struct SpotlightNativeHostUserStoryTests {
             ],
         )
         host.invoke()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 1.5))
 
         let liveResultsController = try #require(
             nativeResponder(
                 named: "SpotlightUIInternal.SearchResultsViewController",
                 in: host.view,
-            ),
+            ) as? NSViewController,
         )
+        let livePageController = try #require(
+            nativeResponder(
+                named: "SpotlightUIInternal.SearchPageController",
+                in: host.view,
+            ) as? NSViewController,
+        )
+        let nativePageController = try #require(livePageController as? NSPageController)
+        let liveSelectedController = try #require(nativePageController.selectedViewController)
         let liveCollectionView = try #require(
-            nativeDescendant(named: "SearchUICollectionView", in: host.view)
+            nativeDescendant(named: "SearchUICollectionView", in: liveResultsController.view)
                 as? NSCollectionView,
         )
 
@@ -107,7 +111,33 @@ struct SpotlightNativeHostUserStoryTests {
         if sectionCount > 0 {
             #expect(liveCollectionView.numberOfItems(inSection: 0) > 0)
         }
-        #expect(host.panel.frame.height > 87)
+        #expect(liveSelectedController.view.frame.height > 1)
+        #expect(liveCollectionView.frame.height > 1)
+        #expect(liveResultsController.preferredContentSize.height > 1)
+        #expect(nativePageController.selectedViewController?.view.isHidden == false)
+
+        host.dismiss()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+        host.update(suggestions: [], applications: [])
+        host.purgeMemory()
+        host.update(
+            suggestions: [],
+            applications: [
+                ApplicationRecord(
+                    name: "Calculator",
+                    url: URL(fileURLWithPath: "/System/Applications/Calculator.app"),
+                ),
+            ],
+        )
+        host.invoke()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 1.5))
+
+        #expect(liveCollectionView.numberOfSections > 0)
+        if liveCollectionView.numberOfSections > 0 {
+            #expect(liveCollectionView.numberOfItems(inSection: 0) > 0)
+        }
+        #expect(liveSelectedController.view.frame.height > 1)
+        #expect(liveCollectionView.frame.height > 1)
     }
 
     @Test @MainActor
