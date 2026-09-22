@@ -19,7 +19,8 @@ struct SpotlightNativeEventCollectorQueueTests {
         let getter = NSSelectorFromString("menuItem")
         let menuItem = host.appDelegate.responds(to: getter)
             ? host.appDelegate.perform(getter)?.takeUnretainedValue()
-            : nativeObjectIvar(named: "menuItem", on: host.appDelegate)
+            : nativeObjectIvar(named: "menuItem", on: host.appDelegate) ??
+            nativeObjectIvar(named: "spotlightMenuItem", on: host.appDelegate)
         return menuItem?
             .perform(NSSelectorFromString("eventCollectorQueue"))?
             .takeUnretainedValue()

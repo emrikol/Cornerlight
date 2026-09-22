@@ -71,6 +71,26 @@ EOF
 
 cat > "$FAKE_BIN/xcrun" <<'EOF'
 #!/bin/zsh
+if [[ "$1" == --sdk && "$2" == macosx && "$3" == --show-sdk-version ]]; then
+    print -r -- "27.0"
+    exit 0
+fi
+if [[ "$1" == vtool ]]; then
+    print -r -- "xcrun $*" >> "$CORNERLIGHT_TEST_COMMAND_LOG"
+    output=""
+    input="${@: -1}"
+    shift
+    while (( $# > 0 )); do
+        if [[ "$1" == -output ]]; then
+            output="$2"
+            shift
+        fi
+        shift
+    done
+    [[ -n "$output" && -f "$input" ]] || exit 2
+    cp "$input" "$output"
+    exit 0
+fi
 [[ "$1" == actool ]] || exit 2
 shift
 compile_root=""
@@ -159,6 +179,8 @@ CORNERLIGHT_OUTPUT_ROOT="$OUTPUT_ONE" CORNERLIGHT_INSTALL_ROOT="$INSTALL_ONE" \
 assert_contains "$COMMAND_LOG" 'codesign --force --sign Apple Development: Example Developer (AAAAAAAAAA)'
 assert_contains "$COMMAND_LOG" \
     'install_name_tool -add_rpath @executable_path/../Frameworks'
+assert_contains "$COMMAND_LOG" \
+    'xcrun vtool -set-build-version macos 26.6 27.0 -replace'
 assert_contains "$COMMAND_LOG" \
     'codesign --force --preserve-metadata=identifier,entitlements,requirements --sign Apple Development: Example Developer (AAAAAAAAAA)'
 assert_not_contains "$COMMAND_LOG" 'open '

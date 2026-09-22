@@ -1257,6 +1257,7 @@ enum SpotlightExecutableRuntime {
     }
 
     static let executablePath = "/System/Library/CoreServices/Spotlight.app/Contents/MacOS/Spotlight"
+    static let siriAIExecutablePath = "/System/Applications/Siri AI.app/Contents/MacOS/Siri AI"
 
     private static let dependencyPaths = [
         "/System/Library/PrivateFrameworks/SearchFoundation.framework/Versions/A/SearchFoundation",
@@ -1265,6 +1266,7 @@ enum SpotlightExecutableRuntime {
         "/System/Library/PrivateFrameworks/SpotlightUIServices.framework/Versions/A/SpotlightUIServices",
         "/System/Library/PrivateFrameworks/SpotlightUIInternal.framework/Versions/A/SpotlightUIInternal",
         "/System/Library/PrivateFrameworks/AppPredictionClient.framework/Versions/A/AppPredictionClient",
+        "/System/Library/PrivateFrameworks/CampoUIInternal.framework/Versions/A/CampoUIInternal",
     ]
 
     private static var handles: [UnsafeMutableRawPointer] = []
@@ -1291,10 +1293,20 @@ enum SpotlightExecutableRuntime {
         return nil
     }
 
+    static var usesEnhancedSiri: Bool {
+        loadDependencies()
+        let serviceDomains = Bundle.main.object(
+            forInfoDictionaryKey: "BSServiceDomains",
+        ) as? [String: Any]
+        return serviceDomains?["com.apple.campo"] != nil &&
+            NSClassFromString("_TtC7Siri_AI11AppDelegate") != nil &&
+            CornerlightSpotlightUsesEnhancedSiri()
+    }
+
     private static func loadDependencies() {
         if !attemptedLoad {
             attemptedLoad = true
-            for path in dependencyPaths + [executablePath] {
+            for path in dependencyPaths + [executablePath, siriAIExecutablePath] {
                 if let handle = dlopen(path, RTLD_LAZY | RTLD_LOCAL) {
                     handles.append(handle)
                 }
@@ -1915,7 +1927,11 @@ private enum SpotlightNativePinnedBadgeHook {
                     indexPath,
                 )
                 MainActor.assumeIsolated {
-                    bridge.owner?.nativeItemWillDisplay(item, at: indexPath)
+                    bridge.owner?.nativeItemWillDisplay(
+                        item,
+                        in: view,
+                        at: indexPath,
+                    )
                 }
             }
             let implementation = imp_implementationWithBlock(replacement)
@@ -2159,12 +2175,112 @@ enum SpotlightNativeEventCollectorQueueRepair {
 }
 
 @MainActor
+enum SpotlightNativeResultScrollerInsets {
+    static func apply(
+        to collectionView: NSCollectionView,
+        maximumCornerRadius: CGFloat? = nativeMaximumCornerRadius,
+    ) -> Bool {
+        guard let scrollView = collectionView.enclosingScrollView,
+              let maximumCornerRadius,
+              maximumCornerRadius > 0
+        else { return false }
+
+        let cornerRadius = min(maximumCornerRadius, scrollView.bounds.height / 2)
+        scrollView.scrollerInsets = NSEdgeInsets(
+            top: cornerRadius,
+            left: 0,
+            bottom: cornerRadius,
+            right: 0,
+        )
+        return true
+    }
+
+    private static let nativeMaximumCornerRadius: CGFloat? = {
+        let searchUIPath =
+            "/System/Library/PrivateFrameworks/SearchUI.framework/Versions/A/SearchUI"
+        guard let handle = dlopen(searchUIPath, RTLD_LAZY | RTLD_LOCAL) else { return nil }
+        defer { dlclose(handle) }
+        guard let symbol = dlsym(handle, "SearchUIResultPlatterMaxCornerRadius") else {
+            return nil
+        }
+        return symbol.load(as: CGFloat.self)
+    }()
+}
+
+@MainActor
+private final class NativeResultScrollerLayoutHookBridge: NSObject {
+    weak var owner: SpotlightNativeLauncherUI?
+}
+
+@MainActor
+private enum SpotlightNativeResultScrollerLayoutHook {
+    private typealias ViewDidLayout = @convention(c) (AnyObject, Selector) -> Void
+
+    private static let associationKey = UnsafeRawPointer(
+        Unmanaged.passRetained(NSObject()).toOpaque(),
+    )
+    private static var hookedClasses: Set<ObjectIdentifier> = []
+
+    static func install(
+        on collectionView: NSCollectionView,
+        owner: SpotlightNativeLauncherUI,
+    ) -> Bool {
+        let selector = NSSelectorFromString("viewDidLayout")
+        guard let controller = collectionView
+            .perform(NSSelectorFromString("controller"))?
+            .takeUnretainedValue(),
+            let method = class_getInstanceMethod(type(of: controller), selector)
+        else { return false }
+
+        let controllerClass: AnyClass = type(of: controller)
+        let classIdentifier = ObjectIdentifier(controllerClass)
+        if !hookedClasses.contains(classIdentifier) {
+            let original = method_getImplementation(method)
+            let replacement: @convention(block) (AnyObject) -> Void = { controller in
+                unsafeBitCast(original, to: ViewDidLayout.self)(
+                    controller,
+                    selector,
+                )
+                MainActor.assumeIsolated {
+                    let bridge = objc_getAssociatedObject(
+                        controller,
+                        associationKey,
+                    ) as? NativeResultScrollerLayoutHookBridge
+                    bridge?.owner?.nativeResultsCollectionDidLayout()
+                }
+            }
+            class_replaceMethod(
+                controllerClass,
+                selector,
+                imp_implementationWithBlock(replacement),
+                method_getTypeEncoding(method),
+            )
+            hookedClasses.insert(classIdentifier)
+        }
+
+        let bridge = NativeResultScrollerLayoutHookBridge()
+        bridge.owner = owner
+        objc_setAssociatedObject(
+            controller,
+            associationKey,
+            bridge,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+        )
+        return true
+    }
+}
+
+@MainActor
 // The dynamic bridge deliberately keeps Spotlight's related selectors in one auditable type.
 // swiftlint:disable:next type_body_length
 final class SpotlightNativeLauncherUI {
     private static let standardDismissalReason = 0
     private static let focusLossDismissalReason = 15
     private static let nativeTransitionRecoveryDelay: TimeInterval = 2
+    private static let macOS27AppsBrowsingResultsMode: UInt8 = 2
+    private static let macOS27ControllerRetryDelay: TimeInterval = 0.01
+    private static let macOS27ControllerRetryLimit = 100
+    private static let macOS27GridBrowseSettlementDelay: TimeInterval = 0.075
 
     private typealias MainWindowInitializer = @convention(c) (
         AnyObject,
@@ -2203,13 +2319,6 @@ final class SpotlightNativeLauncherUI {
         Bool,
         SnapshotCompletion,
     ) -> Void
-    private typealias PreferredContentSizeNotifier = @convention(c) (
-        AnyObject,
-        Selector,
-        AnyObject,
-        NSSize,
-        Bool,
-    ) -> Void
     private typealias CompletionAction = @convention(c) (
         AnyObject,
         Selector,
@@ -2226,6 +2335,7 @@ final class SpotlightNativeLauncherUI {
     let searchField: NSSearchField
     let appDelegate: NSObject
     private(set) var collectionView: NSCollectionView
+    private(set) var topHitCollectionView: NSCollectionView
 
     var onQueryChange: (() -> Void)?
     var onNativeDismiss: (() -> Void)?
@@ -2247,6 +2357,7 @@ final class SpotlightNativeLauncherUI {
     private let sessionAnalytics: AnyObject
     private let windowManager: AnyObject?
     private let runtimeGeneration: SpotlightExecutableRuntime.Generation
+    private let usesEnhancedSiriRuntime: Bool
     let restoresAppsBrowsingResults: Bool
     private let menuActionTarget: SpotlightNativeMenuActionTarget
     private let searchFieldObserver: SpotlightNativeSearchFieldObserver
@@ -2264,6 +2375,7 @@ final class SpotlightNativeLauncherUI {
     private var dismissalCallbackScheduled = false
     private var retainsContentForQueuedPresentation = false
     private var snapshotQueryID: UInt = 0
+    private var gridBrowseSizingWorkItem: DispatchWorkItem?
     private var transitionGate = SpotlightNativeTransitionGate()
     private var lifecycleLease = SpotlightNativeLifecycleLease()
     private lazy var pinnedBadgeImage = Self.makePinnedBadgeImage()
@@ -2393,7 +2505,13 @@ final class SpotlightNativeLauncherUI {
                 on: sandwichController,
             ),
             NSStringFromClass(type(of: topHitResultsController)) ==
-            "SpotlightAppMacOS.SearchResultsAboveFiltersViewController"
+            "SpotlightAppMacOS.SearchResultsAboveFiltersViewController",
+            let topHitViewController = topHitResultsController as? NSViewController,
+            let topHitCollectionView = Self.firstDescendant(
+                of: NSCollectionView.self,
+                in: topHitViewController.view,
+            ),
+            NSStringFromClass(type(of: topHitCollectionView)) == "SearchUICollectionView"
         else {
             NSStatusBar.system.removeStatusItem(statusItem)
             return nil
@@ -2419,6 +2537,7 @@ final class SpotlightNativeLauncherUI {
         self.appDelegate = appDelegate
         self.mainWindowController = mainWindowController
         self.topHitResultsController = topHitResultsController
+        self.topHitCollectionView = topHitCollectionView
         viewController = initialized
         searchField = field
         self.collectionView = collectionView
@@ -2427,6 +2546,7 @@ final class SpotlightNativeLauncherUI {
         self.sessionAnalytics = sessionAnalytics
         windowManager = nil
         runtimeGeneration = .spotlightAppMacOS
+        usesEnhancedSiriRuntime = false
         restoresAppsBrowsingResults = false
         let menuActionTarget = SpotlightNativeMenuActionTarget()
         self.menuActionTarget = menuActionTarget
@@ -2447,7 +2567,6 @@ final class SpotlightNativeLauncherUI {
         )
 
         Self.set(true, on: results, selector: "setSingleClickExecutesCommands:")
-        Self.set(false, on: results, selector: "setIsBelowVisibleFilterBar:")
         guard SpotlightNativeIndexingStatusHook.install(on: indexingStatusView),
               SpotlightNativeSectionsHook.install(on: results, owner: self),
               SpotlightNativeSectionsHook.install(on: topHitResultsController, owner: self),
@@ -2493,13 +2612,16 @@ final class SpotlightNativeLauncherUI {
     // can request permissions such as Photo Library access) that an app launcher never needs.
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private init?(spotlightUIInternal _: Void) {
-        guard let appDelegateClass = NSClassFromString(
-            "_TtC17SpotlightAppMacOS11AppDelegate",
-        ) else {
+        let usesEnhancedSiri = SpotlightExecutableRuntime.usesEnhancedSiri
+        let appDelegateClassName = usesEnhancedSiri
+            ? "_TtC7Siri_AI11AppDelegate"
+            : "_TtC17SpotlightAppMacOS11AppDelegate"
+        guard let appDelegateClass = NSClassFromString(appDelegateClassName) else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: AppDelegate class")
             return nil
         }
 
+        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
         let appDelegateClassObject = appDelegateClass as AnyObject
         guard let allocatedAppDelegate = appDelegateClassObject
             .perform(NSSelectorFromString("alloc"))?
@@ -2508,8 +2630,16 @@ final class SpotlightNativeLauncherUI {
             .perform(NSSelectorFromString("init"))?
             .takeRetainedValue(),
             let appDelegate = appDelegateObject as? NSObject,
-            let manager = Self.objectIvar(named: "windowManager", on: appDelegate),
-            let menuItem = Self.objectIvar(named: "menuItem", on: appDelegate),
+            let manager = Self.objectIvar(
+                named: usesEnhancedSiri
+                    ? "$__lazy_storage_$_windowManager"
+                    : "windowManager",
+                on: appDelegate,
+            ),
+            let menuItem = Self.objectIvar(
+                named: usesEnhancedSiri ? "spotlightMenuItem" : "menuItem",
+                on: appDelegate,
+            ),
             let sessionAnalytics = Self.objectIvar(named: "sessionAnalytics", on: manager)
         else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: ownership graph")
@@ -2517,21 +2647,25 @@ final class SpotlightNativeLauncherUI {
         }
 
         let managerPointer = Unmanaged.passUnretained(manager).toOpaque()
-        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
         guard SpotlightNativeEventCollectorQueueRepair.ensureQueue(on: menuItem) else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: event collector queue")
             return nil
         }
         if let keyCommandManager = Self.objectIvar(
-            named: "keyCommandManager",
+            named: usesEnhancedSiri ? "spotlightKeyCommandManager" : "keyCommandManager",
             on: appDelegate,
         ) {
             Self.setObject(manager, on: keyCommandManager, selector: "setDelegate:")
         }
         Self.setObject(manager, on: menuItem, selector: "setDelegate:")
         Self.setObject(manager, on: menuItem, selector: "setFocusRetentionProvider:")
-        guard CornerlightSpotlightBootstrap(managerPointer) else {
+        guard usesEnhancedSiri || CornerlightSpotlightBootstrap(managerPointer) else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: WindowManager entry points")
+            return nil
+        }
+        if usesEnhancedSiri,
+           !CornerlightSpotlightLaunchAppsBrowsing(managerPointer) {
+            CornerlightTrace.lifecycle.error("macOS 27 Siri bridge failed: app browsing launch")
             return nil
         }
 
@@ -2570,9 +2704,10 @@ final class SpotlightNativeLauncherUI {
         } while initialized == nil && Date() < controllerDeadline
 
         guard let initialized,
+              let nativeRoot = panel.contentView,
               let results = Self.firstDescendantResponder(
                   named: "SpotlightUIInternal.SearchResultsViewController",
-                  in: initialized.view,
+                  in: nativeRoot,
               ),
               let resultsViewController = results as? NSViewController,
               let field = Self.firstDescendant(of: NSSearchField.self, in: initialized.view),
@@ -2584,8 +2719,14 @@ final class SpotlightNativeLauncherUI {
               NSStringFromClass(type(of: collectionView)) == "SearchUICollectionView",
               let topHitResultsController = Self.firstDescendantResponder(
                   named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
-                  in: initialized.view,
+                  in: nativeRoot,
               ),
+              let topHitViewController = topHitResultsController as? NSViewController,
+              let topHitCollectionView = Self.firstDescendant(
+                  of: NSCollectionView.self,
+                  in: topHitViewController.view,
+              ),
+              NSStringFromClass(type(of: topHitCollectionView)) == "SearchUICollectionView",
               let navigationBar = Self.firstDescendant(
                   named: "SpotlightUIInternal.SearchNavigationBar",
                   in: initialized.view,
@@ -2606,6 +2747,7 @@ final class SpotlightNativeLauncherUI {
         self.appDelegate = appDelegate
         self.mainWindowController = mainWindowController
         self.topHitResultsController = topHitResultsController
+        self.topHitCollectionView = topHitCollectionView
         viewController = initialized
         searchField = field
         self.collectionView = collectionView
@@ -2614,6 +2756,7 @@ final class SpotlightNativeLauncherUI {
         self.sessionAnalytics = sessionAnalytics
         windowManager = manager
         runtimeGeneration = .spotlightUIInternal
+        usesEnhancedSiriRuntime = usesEnhancedSiri
         restoresAppsBrowsingResults = true
         let menuActionTarget = SpotlightNativeMenuActionTarget()
         self.menuActionTarget = menuActionTarget
@@ -2624,7 +2767,6 @@ final class SpotlightNativeLauncherUI {
         statusItem = Self.statusItem(for: menuItem)
 
         Self.set(true, on: results, selector: "setSingleClickExecutesCommands:")
-        Self.set(false, on: results, selector: "setIsBelowVisibleFilterBar:")
         let hookResults = [
             ("indexing", SpotlightNativeIndexingStatusHook.install(on: indexingStatusView)),
             ("sections", SpotlightNativeSectionsHook.install(on: results, owner: self)),
@@ -2644,6 +2786,13 @@ final class SpotlightNativeLauncherUI {
             (
                 "pinned-badge",
                 SpotlightNativePinnedBadgeHook.install(on: collectionView, owner: self),
+            ),
+            (
+                "result-scroller-layout",
+                SpotlightNativeResultScrollerLayoutHook.install(
+                    on: collectionView,
+                    owner: self,
+                ),
             ),
             ("view-options", SpotlightNativeViewOptionsMenuHook.install(owner: self)),
         ]
@@ -2682,16 +2831,6 @@ final class SpotlightNativeLauncherUI {
             suspensionBehavior: .deliverImmediately,
         )
         searchField.placeholderString = "Applications"
-
-        let searchControllerPointer = Unmanaged.passUnretained(initialized).toOpaque()
-        guard CornerlightSpotlightCaptureSearchResultsRoot(searchControllerPointer) else {
-            CornerlightTrace.lifecycle.error("macOS 27 bridge failed: native results root")
-            _ = CornerlightSpotlightDismissAll(managerPointer)
-            panel.orderOut(nil)
-            panel.alphaValue = originalAlphaValue
-            NSStatusBar.system.removeStatusItem(statusItem)
-            return nil
-        }
 
         _ = CornerlightSpotlightDismissAll(managerPointer)
         panel.orderOut(nil)
@@ -2734,35 +2873,17 @@ final class SpotlightNativeLauncherUI {
         scheduleTransitionRecovery(for: token, operation: "presentation")
         if let windowManager {
             let managerPointer = Unmanaged.passUnretained(windowManager).toOpaque()
-            guard CornerlightSpotlightLaunchAppsBrowsing(managerPointer) else {
+            guard usesEnhancedSiriRuntime || configureMacOS27AppsBrowsingFactory(),
+                  CornerlightSpotlightLaunchAppsBrowsing(managerPointer)
+            else {
+                CornerlightTrace.lifecycle.error(
+                    "macOS 27 native apps-browsing presentation configuration failed",
+                )
                 lifecycleLease.completeNativeInvocation(token)
                 resolveNativeTransition(transitionGate.expire(token))
                 return
             }
-            let searchControllerPointer = Unmanaged.passUnretained(viewController).toOpaque()
-            guard CornerlightSpotlightRestoreSearchResultsRoot(searchControllerPointer) else {
-                CornerlightTrace.lifecycle.error("macOS 27 native results root restore failed")
-                _ = CornerlightSpotlightDismissAll(managerPointer)
-                lifecycleLease.completeNativeInvocation(token)
-                resolveNativeTransition(transitionGate.expire(token))
-                return
-            }
-            refreshMacOS27LiveCollectionView()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self, transitionGate.isCurrent(token) else { return }
-                let searchControllerPointer = Unmanaged.passUnretained(viewController).toOpaque()
-                guard CornerlightSpotlightRestoreSearchResultsRoot(searchControllerPointer) else {
-                    CornerlightTrace.lifecycle.error(
-                        "macOS 27 delayed native results root restore failed",
-                    )
-                    lifecycleLease.completeNativeInvocation(token)
-                    resolveNativeTransition(transitionGate.expire(token))
-                    return
-                }
-                refreshMacOS27LiveCollectionView()
-                lifecycleLease.completeNativeInvocation(token)
-                nativeTransitionDidComplete(token)
-            }
+            finishMacOS27Presentation(token: token)
             return
         }
         let selector = NSSelectorFromString("launchAppsBrowsingWithCompletion:")
@@ -2775,6 +2896,100 @@ final class SpotlightNativeLauncherUI {
             appDelegate.method(for: selector),
             to: CompletionAction.self,
         )(appDelegate, selector, completionBlock)
+    }
+
+    private func configureMacOS27AppsBrowsingFactory() -> Bool {
+        guard runtimeGeneration == .spotlightUIInternal,
+              let factory = Self.objectIvar(
+                  named: "viewControllerFactory",
+                  on: viewController,
+              )
+        else { return false }
+        return Self.setByteIvar(
+            named: "configuration",
+            on: factory,
+            to: Self.macOS27AppsBrowsingResultsMode,
+        )
+    }
+
+    private func applyMacOS27GridBrowseWindowBehavior() -> Bool {
+        guard !usesEnhancedSiriRuntime else { return true }
+        guard runtimeGeneration == .spotlightUIInternal,
+              let sizingCoordinator = Self.objectIvar(
+                  named: "sizingCoordinator",
+                  on: viewController,
+              ),
+              let windowSize = Self.objectIvar(
+                  named: "windowSize",
+                  on: sizingCoordinator,
+              )
+        else { return false }
+        return CornerlightSpotlightApplyGridBrowseWindowBehavior(
+            Unmanaged.passUnretained(windowSize).toOpaque(),
+        )
+    }
+
+    private func settleMacOS27GridBrowseWindowBehavior() {
+        guard !usesEnhancedSiriRuntime else { return }
+        gridBrowseSizingWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, !applyMacOS27GridBrowseWindowBehavior() else { return }
+            CornerlightTrace.lifecycle.error(
+                "macOS 27 native grid-browse sizing restore failed",
+            )
+        }
+        gridBrowseSizingWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.macOS27GridBrowseSettlementDelay,
+            execute: workItem,
+        )
+    }
+
+    private func finishMacOS27Presentation(
+        token: SpotlightNativeTransitionGate.Token,
+        attemptsRemaining: Int = macOS27ControllerRetryLimit,
+        hasAdoptedController: Bool = false,
+    ) {
+        guard transitionGate.isCurrent(token) else { return }
+        let hasAdoptedController = hasAdoptedController || refreshMacOS27LiveCollectionView()
+        if hasAdoptedController,
+           isMacOS27AppsBrowsingControllerVisible(),
+           applyMacOS27GridBrowseWindowBehavior() {
+            lifecycleLease.completeNativeInvocation(token)
+            nativeTransitionDidComplete(token)
+            return
+        }
+        guard attemptsRemaining > 0 else {
+            CornerlightTrace.lifecycle.error(
+                "macOS 27 native apps-browsing controller did not materialize",
+            )
+            if let windowManager {
+                _ = CornerlightSpotlightDismissAll(
+                    Unmanaged.passUnretained(windowManager).toOpaque(),
+                )
+            }
+            lifecycleLease.completeNativeInvocation(token)
+            resolveNativeTransition(transitionGate.expire(token))
+            return
+        }
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.macOS27ControllerRetryDelay,
+        ) { [weak self] in
+            self?.finishMacOS27Presentation(
+                token: token,
+                attemptsRemaining: attemptsRemaining - 1,
+                hasAdoptedController: hasAdoptedController,
+            )
+        }
+    }
+
+    private func isMacOS27AppsBrowsingControllerVisible() -> Bool {
+        let root = panel.contentView ?? viewController.view
+        guard let pageController = Self.firstAppsBrowsingPageController(in: root),
+              let selectedController = pageController.selectedViewController,
+              NSStringFromClass(type(of: selectedController)).contains("SandwichViewController")
+        else { return false }
+        return !selectedController.view.isHidden
     }
 
     func prepareForWindowServerInvocation() {
@@ -2962,11 +3177,23 @@ final class SpotlightNativeLauncherUI {
             [],
             on: topHitResultsController,
         )
+        let scrollingSections = currentSuggestionSections + currentCatalogSections
         SpotlightNativeSectionsHook.setEnumeratedSections(
-            currentSuggestionSections + currentCatalogSections,
+            scrollingSections,
             on: resultsController,
         )
-        applyMacOS27EnumeratedSnapshot()
+        applyMacOS27EnumeratedSnapshot(
+            sections: [],
+            to: topHitCollectionView,
+            completion: {},
+        )
+        applyMacOS27EnumeratedSnapshot(
+            sections: scrollingSections,
+            to: collectionView,
+        ) { [weak self] in
+            self?.configureMacOS27NativeScrollerInsets()
+        }
+        configureMacOS27NativeScrollerInsets()
     }
 
     func nativeSectionsWereProposed() {
@@ -3072,6 +3299,10 @@ final class SpotlightNativeLauncherUI {
         topHitResultsController
     }
 
+    var retainedNativeTopHitCollectionView: NSCollectionView {
+        topHitCollectionView
+    }
+
     var retainedNativeCollectionView: NSCollectionView {
         collectionView
     }
@@ -3084,8 +3315,13 @@ final class SpotlightNativeLauncherUI {
         SpotlightNativePinnedBadgeHook.isInstalled(on: collectionView)
     }
 
-    func nativeItemWillDisplay(_ item: NSCollectionViewItem, at indexPath: NSIndexPath) {
-        let pinned = searchField.stringValue.isEmpty &&
+    func nativeItemWillDisplay(
+        _ item: NSCollectionViewItem,
+        in candidateCollectionView: NSCollectionView,
+        at indexPath: NSIndexPath,
+    ) {
+        let pinned = candidateCollectionView === collectionView &&
+            searchField.stringValue.isEmpty &&
             indexPath.section == 0 &&
             currentSuggestionApplications.indices.contains(indexPath.item) &&
             isApplicationPinned?(currentSuggestionApplications[indexPath.item].url) == true
@@ -3097,9 +3333,13 @@ final class SpotlightNativeLauncherUI {
         at point: NSPoint? = nil,
     ) {
         endPinnedApplicationPointerReorder()
-        guard candidateCollectionView.selectionIndexPaths.count == 1,
+        guard candidateCollectionView === collectionView,
+              candidateCollectionView.selectionIndexPaths.count == 1,
               let selectedIndexPath = candidateCollectionView.selectionIndexPaths.first,
-              let application = pinnedApplication(at: selectedIndexPath as NSIndexPath)
+              let application = pinnedApplication(
+                  at: selectedIndexPath as NSIndexPath,
+                  in: candidateCollectionView,
+              )
         else { return }
         pointerReorderPinnedApplicationURL = application.url
         guard let point else { return }
@@ -3116,7 +3356,8 @@ final class SpotlightNativeLauncherUI {
         in candidateCollectionView: NSCollectionView,
         at point: NSPoint,
     ) -> Bool {
-        guard let applicationURL = pointerReorderPinnedApplicationURL
+        guard candidateCollectionView === collectionView,
+              let applicationURL = pointerReorderPinnedApplicationURL
         else { return false }
         showPinnedApplicationDragImage(in: candidateCollectionView, at: point)
 
@@ -3277,8 +3518,12 @@ final class SpotlightNativeLauncherUI {
         pinnedInsertionIndicatorView?.isHidden = true
     }
 
-    private func pinnedApplication(at indexPath: NSIndexPath) -> ApplicationRecord? {
-        guard searchField.stringValue.isEmpty,
+    private func pinnedApplication(
+        at indexPath: NSIndexPath,
+        in candidateCollectionView: NSCollectionView,
+    ) -> ApplicationRecord? {
+        guard candidateCollectionView === collectionView,
+              searchField.stringValue.isEmpty,
               indexPath.section == 0,
               currentSuggestionApplications.indices.contains(indexPath.item)
         else { return nil }
@@ -3498,11 +3743,19 @@ final class SpotlightNativeLauncherUI {
         searchField.stringValue = ""
     }
 
-    private func refreshMacOS27LiveCollectionView() {
+    @discardableResult
+    // swiftlint:disable:next function_body_length
+    private func refreshMacOS27LiveCollectionView() -> Bool {
+        let root = panel.contentView ?? viewController.view
         guard runtimeGeneration == .spotlightUIInternal,
+              let pageController = Self.firstAppsBrowsingPageController(in: root),
+              let selectedController = pageController.selectedViewController,
+              NSStringFromClass(type(of: selectedController)).contains(
+                  "SandwichViewController",
+              ),
               let liveResultsController = Self.firstDescendantResponder(
                   named: "SpotlightUIInternal.SearchResultsViewController",
-                  in: viewController.view,
+                  in: selectedController.view,
               ),
               let liveResultsViewController = liveResultsController as? NSViewController,
               let liveCollectionView = Self.firstDescendant(
@@ -3510,11 +3763,11 @@ final class SpotlightNativeLauncherUI {
                   in: liveResultsViewController.view,
               ),
               NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView"
-        else { return }
+        else { return false }
 
         guard adoptMacOS27ResultsController(liveResultsController),
-              adoptMacOS27TopHitResultsController()
-        else { return }
+              adoptMacOS27TopHitResultsController(in: selectedController.view)
+        else { return false }
         if liveCollectionView !== collectionView {
             collectionView = liveCollectionView
             CornerlightTrace.lifecycle.notice("adopted live macOS 27 results collection")
@@ -3532,6 +3785,13 @@ final class SpotlightNativeLauncherUI {
                 "pinned-badge",
                 SpotlightNativePinnedBadgeHook.install(on: liveCollectionView, owner: self),
             ),
+            (
+                "result-scroller-layout",
+                SpotlightNativeResultScrollerLayoutHook.install(
+                    on: liveCollectionView,
+                    owner: self,
+                ),
+            ),
         ]
         let failedHooks = hookResults.compactMap { name, installed in installed ? nil : name }
         if !failedHooks.isEmpty {
@@ -3540,13 +3800,13 @@ final class SpotlightNativeLauncherUI {
             )
         }
         restoreEnumeratedSections()
+        return true
     }
 
     private func adoptMacOS27ResultsController(_ liveResultsController: AnyObject) -> Bool {
         guard liveResultsController !== resultsController else { return true }
         resultsController = liveResultsController
         Self.set(true, on: liveResultsController, selector: "setSingleClickExecutesCommands:")
-        Self.set(false, on: liveResultsController, selector: "setIsBelowVisibleFilterBar:")
         Self.setObject(
             searchField.stringValue as NSString,
             on: liveResultsController,
@@ -3563,25 +3823,43 @@ final class SpotlightNativeLauncherUI {
         return true
     }
 
-    private func adoptMacOS27TopHitResultsController() -> Bool {
+    private func adoptMacOS27TopHitResultsController(in root: NSView) -> Bool {
         guard let liveController = Self.firstDescendantResponder(
             named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
-            in: viewController.view,
-        ), liveController !== topHitResultsController else { return true }
-        topHitResultsController = liveController
-        Self.setObject(
-            searchField.stringValue as NSString,
-            on: liveController,
-            selector: "setQueryString:",
-        )
-        guard SpotlightNativeSectionsHook.install(on: liveController, owner: self) else {
-            CornerlightTrace.lifecycle.error("macOS 27 live top-hit results hook failed")
-            return false
+            in: root,
+        ),
+            let liveViewController = liveController as? NSViewController,
+            let liveCollectionView = Self.firstDescendant(
+                of: NSCollectionView.self,
+                in: liveViewController.view,
+            ),
+            NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView"
+        else { return false }
+
+        if liveController !== topHitResultsController {
+            topHitResultsController = liveController
+            Self.setObject(
+                searchField.stringValue as NSString,
+                on: liveController,
+                selector: "setQueryString:",
+            )
+            guard SpotlightNativeSectionsHook.install(on: liveController, owner: self) else {
+                CornerlightTrace.lifecycle.error("macOS 27 live top-hit results hook failed")
+                return false
+            }
+        }
+        if liveCollectionView !== topHitCollectionView {
+            topHitCollectionView = liveCollectionView
+            CornerlightTrace.lifecycle.notice("adopted live macOS 27 top-hit collection")
         }
         return true
     }
 
-    private func applyMacOS27EnumeratedSnapshot() {
+    private func applyMacOS27EnumeratedSnapshot(
+        sections: [AnyObject],
+        to candidateCollectionView: NSCollectionView,
+        completion: @escaping () -> Void,
+    ) {
         let buildSelector = NSSelectorFromString("buildSnapshotFromResultSections:queryId:")
         let updateSelector = NSSelectorFromString(
             "updateWithSnapshot:queryId:animated:completion:",
@@ -3591,7 +3869,7 @@ final class SpotlightNativeLauncherUI {
               let builder = (builderClass as AnyObject)
               .perform(NSSelectorFromString("new"))?
               .takeRetainedValue(),
-              let collectionController = collectionView
+              let collectionController = candidateCollectionView
               .perform(NSSelectorFromString("controller"))?
               .takeUnretainedValue(),
               builder.responds(to: buildSelector),
@@ -3609,7 +3887,7 @@ final class SpotlightNativeLauncherUI {
         )(
             builder,
             buildSelector,
-            (currentSuggestionSections + currentCatalogSections) as NSArray,
+            sections as NSArray,
             queryID,
         )?.takeUnretainedValue()
         else {
@@ -3617,7 +3895,7 @@ final class SpotlightNativeLauncherUI {
             return
         }
 
-        let completion: SnapshotCompletion = {}
+        let snapshotCompletion: SnapshotCompletion = completion
         unsafeBitCast(
             collectionController.method(for: updateSelector),
             to: SnapshotUpdater.self,
@@ -3627,69 +3905,20 @@ final class SpotlightNativeLauncherUI {
             snapshot,
             queryID,
             false,
-            completion,
+            snapshotCompletion,
         )
-        scheduleMacOS27PreferredContentSizeSync()
-    }
-
-    private func scheduleMacOS27PreferredContentSizeSync(
-        attemptsRemaining: Int = 60,
-    ) {
-        guard !notifyMacOS27PreferredContentSizeChanged(),
-              attemptsRemaining > 0,
-              panel.isVisible
-        else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.scheduleMacOS27PreferredContentSizeSync(
-                attemptsRemaining: attemptsRemaining - 1,
-            )
+        if isMacOS27AppsBrowsingControllerVisible() {
+            settleMacOS27GridBrowseWindowBehavior()
         }
     }
 
-    @discardableResult
-    private func notifyMacOS27PreferredContentSizeChanged() -> Bool {
-        let selector = NSSelectorFromString(
-            "resultsViewController:preferredContentSizeDidChange:animated:",
-        )
-        guard runtimeGeneration == .spotlightUIInternal,
-              let controller = resultsController as? NSViewController,
-              controller.preferredContentSize.height > 0,
-              let container = resultsController.perform(
-                  NSSelectorFromString("sizingDelegate"),
-              )?.takeUnretainedValue() as? NSViewController,
-              container.responds(to: selector)
-        else { return false }
+    private func configureMacOS27NativeScrollerInsets() {
+        guard runtimeGeneration == .spotlightUIInternal else { return }
+        _ = SpotlightNativeResultScrollerInsets.apply(to: collectionView)
+    }
 
-        container.preferredContentSize = controller.preferredContentSize
-        unsafeBitCast(
-            container.method(for: selector),
-            to: PreferredContentSizeNotifier.self,
-        )(
-            container,
-            selector,
-            resultsController,
-            controller.preferredContentSize,
-            false,
-        )
-
-        guard let pageController = Self.firstDescendantResponder(
-            named: "SpotlightUIInternal.SearchPageController",
-            in: viewController.view,
-        ) as? NSPageController else { return false }
-        let headerHeight = pageController.view.frame.minY + 1
-        let pageSize = NSSize(
-            width: pageController.view.frame.width,
-            height: controller.preferredContentSize.height,
-        )
-        pageController.preferredContentSize = pageSize
-        panel.setContentSize(
-            NSSize(width: pageSize.width, height: headerHeight + pageSize.height),
-        )
-        pageController.completeTransition()
-        pageController.selectedViewController?.view.isHidden = false
-        pageController.view.layoutSubtreeIfNeeded()
-        guard let selectedView = pageController.selectedViewController?.view else { return false }
-        return !selectedView.isHidden && selectedView.frame.height > 1
+    func nativeResultsCollectionDidLayout() {
+        configureMacOS27NativeScrollerInsets()
     }
 
     func purgeMemory() {
@@ -3818,6 +4047,22 @@ final class SpotlightNativeLauncherUI {
         return nil
     }
 
+    private static func firstAppsBrowsingPageController(in root: NSView) -> NSPageController? {
+        if let pageController = root.nextResponder as? NSPageController,
+           NSStringFromClass(type(of: pageController)) ==
+           "SpotlightUIInternal.SearchPageController",
+           let selectedController = pageController.selectedViewController,
+           NSStringFromClass(type(of: selectedController)).contains("SandwichViewController") {
+            return pageController
+        }
+        for subview in root.subviews {
+            if let match = firstAppsBrowsingPageController(in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
     private static func firstDescendantView(
         withNextResponderNamed className: String,
         in root: NSView,
@@ -3884,6 +4129,18 @@ final class SpotlightNativeLauncherUI {
               .load(as: UnsafeRawPointer?.self)
         else { return nil }
         return Unmanaged<AnyObject>.fromOpaque(rawValue).takeUnretainedValue()
+    }
+
+    private static func setByteIvar(
+        named name: String,
+        on object: AnyObject,
+        to value: UInt8,
+    ) -> Bool {
+        guard let ivar = class_getInstanceVariable(type(of: object), name) else { return false }
+        Unmanaged.passUnretained(object).toOpaque()
+            .advanced(by: ivar_getOffset(ivar))
+            .storeBytes(of: value, as: UInt8.self)
+        return true
     }
 
     private static func set(_ value: Bool, on object: AnyObject, selector name: String) {
@@ -4463,6 +4720,27 @@ private extension LauncherWindowController {
 
 // MARK: - Settings
 
+enum LauncherSettingsWindowPresentationPolicy {
+    static let applicationActivationPolicy: NSApplication.ActivationPolicy = .accessory
+    static let collectionBehavior: NSWindow.CollectionBehavior = [
+        .moveToActiveSpace,
+        .fullScreenAuxiliary,
+    ]
+
+    @MainActor
+    static func prepare(_ window: NSWindow) {
+        window.collectionBehavior.formUnion(collectionBehavior)
+    }
+
+    @MainActor
+    static func activate(_ application: NSApplication, window: NSWindow) {
+        _ = application.setActivationPolicy(applicationActivationPolicy)
+        application.activate()
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+    }
+}
+
 enum LauncherLoginItemStatus: Equatable {
     case disabled
     case enabled
@@ -4747,6 +5025,7 @@ private final class LauncherSettingsWindowController: NSWindowController, NSWind
         )
         window.title = "Cornerlight Settings"
         window.isReleasedWhenClosed = false
+        LauncherSettingsWindowPresentationPolicy.prepare(window)
         window.setFrameAutosaveName("LaunchSettingsWindow")
         window.setContentSize(NSSize(width: 520, height: 550))
         window.center()
@@ -4767,12 +5046,21 @@ private final class LauncherSettingsWindowController: NSWindowController, NSWind
         refreshAutomaticUpdateState()
         refreshAvailableCorners()
         refreshHiddenApplications()
+        guard let window else { return }
+        LauncherSettingsWindowPresentationPolicy.prepare(window)
         showWindow(nil)
-        NSApp.activate()
-        window?.makeKeyAndOrderFront(nil)
-        window?.orderFrontRegardless()
-        let visible = window?.isVisible ?? false
-        CornerlightTrace.lifecycle.notice("settings ordered front visible=\(visible, privacy: .public)")
+        LauncherSettingsWindowPresentationPolicy.activate(NSApp, window: window)
+        let policy = NSApp.activationPolicy().rawValue
+        let isVisible = window.isVisible
+        CornerlightTrace.lifecycle.notice(
+            "settings ordered front visible=\(isVisible, privacy: .public) policy=\(policy, privacy: .public)",
+        )
+        DispatchQueue.main.async {
+            LauncherSettingsWindowPresentationPolicy.activate(NSApp, window: window)
+            CornerlightTrace.lifecycle.notice(
+                "settings focus key=\(window.isKeyWindow, privacy: .public) active=\(NSApp.isActive, privacy: .public)",
+            )
+        }
     }
 
     func windowWillClose(_: Notification) {

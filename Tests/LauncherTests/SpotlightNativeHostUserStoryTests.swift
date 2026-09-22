@@ -9,16 +9,27 @@ import Testing
 // swiftlint:disable:next type_body_length
 struct SpotlightNativeHostUserStoryTests {
     @Test @MainActor
+    // swiftlint:disable:next function_body_length
     func `native app browse invocation is owned by Spotlights actual runtime graph`() throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
 
         if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
-            #expect(NSStringFromClass(type(of: host.appDelegate)) == "SpotlightAppMacOS.AppDelegate")
+            let usesEnhancedSiri = SpotlightExecutableRuntime.usesEnhancedSiri
+            #expect(NSStringFromClass(type(of: host.appDelegate)) == (usesEnhancedSiri
+                    ? "Siri_AI.AppDelegate"
+                    : "SpotlightAppMacOS.AppDelegate"))
             let manager = try #require(
-                nativeObjectIvar(named: "windowManager", on: host.appDelegate) as? NSObject,
+                nativeObjectIvar(
+                    named: usesEnhancedSiri
+                        ? "$__lazy_storage_$_windowManager"
+                        : "windowManager",
+                    on: host.appDelegate,
+                ) as? NSObject,
             )
-            #expect(NSStringFromClass(type(of: manager)) == "SpotlightUIInternal.WindowManager")
+            #expect(NSStringFromClass(type(of: manager)) == (usesEnhancedSiri
+                    ? "CampoUIInternal.MacWindowManager"
+                    : "SpotlightUIInternal.WindowManager"))
             #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
             #expect(host.viewController.responds(to: NSSelectorFromString("insertText:")))
             #expect(host.restoresAppsBrowsingResults)
@@ -59,7 +70,7 @@ struct SpotlightNativeHostUserStoryTests {
 
     @Test @MainActor
     // swiftlint:disable:next function_body_length
-    func `presentation keeps enumerated results in Spotlights live hierarchy`() throws {
+    func `presentation keeps enumerated results in Spotlights live hierarchy`() async throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
         guard SpotlightExecutableRuntime.generation == .spotlightUIInternal else {
@@ -82,42 +93,105 @@ struct SpotlightNativeHostUserStoryTests {
                 ),
             ],
         )
+        let invocationStartedAt = Date()
         host.invoke()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 1.5))
+        await waitForNativeSpotlightPresentation {
+            guard let pageController = nativeAppsBrowsingPageController(in: host.view),
+                  let selectedController = pageController.selectedViewController,
+                  NSStringFromClass(type(of: selectedController)).contains(
+                      "SandwichViewController",
+                  ),
+                  let resultsController = nativeResponder(
+                      named: "SpotlightUIInternal.SearchResultsViewController",
+                      in: selectedController.view,
+                  ) as? NSViewController,
+                  let collectionView = nativeDescendant(
+                      named: "SearchUICollectionView",
+                      in: resultsController.view,
+                  ) as? NSCollectionView
+            else { return false }
+            return !selectedController.view.isHidden &&
+                collectionView.numberOfSections > 0 &&
+                collectionView.numberOfItems(inSection: 0) > 0 &&
+                nativeDescendants(
+                    named: "SearchUIBackgroundColorView",
+                    in: host.view,
+                ).contains(where: { $0.frame.size == NSSize(width: 844, height: 520) })
+        }
+        let presentationDuration = Date().timeIntervalSince(invocationStartedAt)
 
+        let nativePageController = try #require(nativeAppsBrowsingPageController(in: host.view))
+        let liveSelectedController = try #require(nativePageController.selectedViewController)
         let liveResultsController = try #require(
             nativeResponder(
                 named: "SpotlightUIInternal.SearchResultsViewController",
-                in: host.view,
+                in: liveSelectedController.view,
             ) as? NSViewController,
         )
-        let livePageController = try #require(
-            nativeResponder(
-                named: "SpotlightUIInternal.SearchPageController",
-                in: host.view,
-            ) as? NSViewController,
-        )
-        let nativePageController = try #require(livePageController as? NSPageController)
-        let liveSelectedController = try #require(nativePageController.selectedViewController)
         let liveCollectionView = try #require(
             nativeDescendant(named: "SearchUICollectionView", in: liveResultsController.view)
                 as? NSCollectionView,
         )
-
+        let windowState = try #require(
+            nativeObjectIvar(named: "windowState", on: host.viewController),
+        )
+        let currentWindowState = try #require(
+            Mirror(reflecting: windowState).children.first(where: {
+                $0.label == "_current"
+            })?.value,
+        )
+        let backgroundViews = nativeDescendants(
+            named: "SearchUIBackgroundColorView",
+            in: host.view,
+        )
         #expect(liveResultsController === host.retainedNativeResultsController)
         #expect(liveCollectionView === host.retainedNativeCollectionView)
+        #expect(NSStringFromClass(type(of: liveSelectedController)).contains("SandwichViewController"))
+        if SpotlightExecutableRuntime.usesEnhancedSiri {
+            #expect(String(reflecting: currentWindowState).contains("prompt"))
+        } else {
+            let viewControllerFactory = try #require(
+                nativeObjectIvar(named: "viewControllerFactory", on: host.viewController),
+            )
+            let factoryConfiguration = try #require(
+                Mirror(reflecting: viewControllerFactory).children.first(where: {
+                    $0.label == "configuration"
+                })?.value,
+            )
+            let sizingCoordinator = try #require(
+                nativeObjectIvar(named: "sizingCoordinator", on: host.viewController),
+            )
+            let windowSize = try #require(
+                nativeObjectIvar(named: "windowSize", on: sizingCoordinator),
+            )
+            let windowBehavior = try #require(
+                Mirror(reflecting: windowSize).children.first(where: {
+                    $0.label == "_behavior"
+                })?.value,
+            )
+            #expect(String(reflecting: currentWindowState).contains("Applications"))
+            #expect(String(reflecting: factoryConfiguration).contains("Mode.regular"))
+            #expect(String(reflecting: windowBehavior).contains("minSize: (844.0, 520.0)"))
+        }
+        #expect(presentationDuration < 0.75)
+        #expect(backgroundViews.count >= 2)
+        #expect(backgroundViews.contains(where: { $0.frame.size == NSSize(width: 844, height: 520) }))
+        #expect(nativeDescendant(named: "SearchUIGradientView", in: host.view) != nil)
         let sectionCount = liveCollectionView.numberOfSections
         #expect(sectionCount > 0)
         if sectionCount > 0 {
             #expect(liveCollectionView.numberOfItems(inSection: 0) > 0)
         }
-        #expect(liveSelectedController.view.frame.height > 1)
+        #expect(liveSelectedController.view.frame.width == 844)
+        #expect(liveSelectedController.view.frame.height == (SpotlightExecutableRuntime.usesEnhancedSiri
+                ? 520
+                : 434))
         #expect(liveCollectionView.frame.height > 1)
         #expect(liveResultsController.preferredContentSize.height > 1)
         #expect(nativePageController.selectedViewController?.view.isHidden == false)
 
         host.dismiss()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+        await waitForNativeSpotlightPresentation(timeout: 0.5) { false }
         host.update(suggestions: [], applications: [])
         host.purgeMemory()
         host.update(
@@ -130,14 +204,25 @@ struct SpotlightNativeHostUserStoryTests {
             ],
         )
         host.invoke()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 1.5))
-
-        #expect(liveCollectionView.numberOfSections > 0)
-        if liveCollectionView.numberOfSections > 0 {
-            #expect(liveCollectionView.numberOfItems(inSection: 0) > 0)
+        await waitForNativeSpotlightPresentation {
+            host.retainedNativeCollectionView.numberOfSections > 0 &&
+                host.retainedNativeCollectionView.numberOfItems(inSection: 0) > 0
         }
-        #expect(liveSelectedController.view.frame.height > 1)
-        #expect(liveCollectionView.frame.height > 1)
+
+        let relaunchedCollectionView = host.retainedNativeCollectionView
+        let relaunchedPageController = try #require(
+            nativeAppsBrowsingPageController(in: host.view),
+        )
+        let relaunchedSelectedController = try #require(
+            relaunchedPageController.selectedViewController,
+        )
+        #expect(relaunchedCollectionView.numberOfSections > 0)
+        if relaunchedCollectionView.numberOfSections > 0 {
+            #expect(relaunchedCollectionView.numberOfItems(inSection: 0) > 0)
+        }
+        #expect(NSStringFromClass(type(of: relaunchedSelectedController)).contains("SandwichViewController"))
+        #expect(relaunchedSelectedController.view.frame.height > 1)
+        #expect(relaunchedCollectionView.frame.height > 1)
     }
 
     @Test @MainActor
@@ -530,6 +615,21 @@ struct SpotlightNativeHostUserStoryTests {
     private func drainMainQueue() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+    }
+}
+
+@MainActor
+private func waitForNativeSpotlightPresentation(
+    timeout: TimeInterval = 2,
+    condition: () -> Bool,
+) async {
+    let deadline = Date(timeIntervalSinceNow: timeout)
+    while !condition(), Date() < deadline {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 continuation.resume()
             }
         }

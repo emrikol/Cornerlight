@@ -49,11 +49,13 @@ final class NativeCollectionTestSurface {
 
     init(host: SpotlightNativeLauncherUI) throws {
         let installedCollectionController = try #require(
-            host.collectionView.perform(NSSelectorFromString("controller"))?
+            host.retainedNativeCollectionView
+                .perform(NSSelectorFromString("controller"))?
                 .takeUnretainedValue(),
         )
         let collectionController = try replacementCollectionController(
             matching: installedCollectionController,
+            aboveFilters: false,
         )
         let viewController = try #require(collectionController as? NSViewController)
         window = NSWindow(
@@ -112,6 +114,7 @@ func nativeApplicationContextMenu(in host: SpotlightNativeLauncherUI) throws -> 
     )
     let collectionController = try replacementCollectionController(
         matching: installedCollectionController,
+        aboveFilters: false,
     )
     let resultsController = try #require(nativeResultsController(in: host))
     let sections = try #require(
@@ -130,7 +133,10 @@ func nativeApplicationContextMenu(in host: SpotlightNativeLauncherUI) throws -> 
 }
 
 @MainActor
-private func replacementCollectionController(matching controller: AnyObject) throws -> AnyObject {
+private func replacementCollectionController(
+    matching controller: AnyObject,
+    aboveFilters: Bool,
+) throws -> AnyObject {
     let initializer = NSSelectorFromString("initForAboveFilterResults:")
     guard controller.responds(to: initializer) else { return controller }
     let controllerClass = type(of: controller) as AnyObject
@@ -141,7 +147,7 @@ private func replacementCollectionController(matching controller: AnyObject) thr
         unsafeBitCast(allocated.method(for: initializer), to: CollectionControllerInitializer.self)(
             allocated,
             initializer,
-            false,
+            aboveFilters,
         )?.takeRetainedValue(),
     )
     let viewController = try #require(replacement as? NSViewController)
@@ -220,6 +226,23 @@ func nativeResponder(named name: String, in root: NSView) -> NSResponder? {
 }
 
 @MainActor
+func nativeAppsBrowsingPageController(in root: NSView) -> NSPageController? {
+    if let pageController = root.nextResponder as? NSPageController,
+       NSStringFromClass(type(of: pageController)) ==
+       "SpotlightUIInternal.SearchPageController",
+       let selectedController = pageController.selectedViewController,
+       NSStringFromClass(type(of: selectedController)).contains("SandwichViewController") {
+        return pageController
+    }
+    for subview in root.subviews {
+        if let match = nativeAppsBrowsingPageController(in: subview) {
+            return match
+        }
+    }
+    return nil
+}
+
+@MainActor
 func nativeDescendant(named name: String, in root: NSView) -> NSView? {
     if NSStringFromClass(type(of: root)) == name {
         return root
@@ -230,4 +253,10 @@ func nativeDescendant(named name: String, in root: NSView) -> NSView? {
         }
     }
     return nil
+}
+
+@MainActor
+func nativeDescendants(named name: String, in root: NSView) -> [NSView] {
+    let rootMatch = NSStringFromClass(type(of: root)) == name ? [root] : []
+    return rootMatch + root.subviews.flatMap { nativeDescendants(named: name, in: $0) }
 }

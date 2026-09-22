@@ -2,6 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>BSServiceDomains</key>
+    <dict>
+        <key>com.apple.campo</key>
+        <dict>
+            <key>ListenerQueueServiceQuality</key>
+            <string>UserInteractive</string>
+            <key>MachName</key>
+            <string>com.apple.campo</string>
+            <key>Multiplexing</key>
+            <string>MatchInitiator</string>
+            <key>Services</key>
+            <dict>
+                <key>com.apple.campo</key>
+                <dict/>
+                <key>com.apple.campo.activation</key>
+                <dict/>
+                <key>com.apple.campo.test</key>
+                <dict/>
+            </dict>
+            <key>Start</key>
+            <string>ManualBootstrap</string>
+        </dict>
+    </dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
@@ -21,9 +44,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.14</string>
+    <string>0.1.15</string>
     <key>CFBundleVersion</key>
-    <string>15</string>
+    <string>16</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.6</string>
     <key>LSApplicationCategoryType</key>

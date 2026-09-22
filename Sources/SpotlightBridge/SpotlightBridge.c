@@ -7,32 +7,25 @@ typedef void __attribute__((swiftcall)) (*SwiftInstanceMethod)(
     void *self __attribute__((swift_context))
 );
 
-typedef void *__attribute__((swiftcall)) (*SwiftObjectInstanceMethod)(
-    void *self __attribute__((swift_context))
-);
-
-// macOS 27's SearchNavigationStackItem is a resilient Swift value with an 840-byte ABI layout.
-// Cornerlight's runtime compatibility guard prevents this bridge from loading on later major
-// versions, where Apple may change that private layout.
-typedef struct __attribute__((aligned(8))) {
-    unsigned char storage[840];
-} SearchNavigationStackItem;
-
-_Static_assert(sizeof(SearchNavigationStackItem) == 840, "unexpected navigation item layout");
-
-typedef SearchNavigationStackItem __attribute__((swiftcall)) (*SwiftStackItemGetter)(
-    void *self __attribute__((swift_context))
-);
-
-typedef void __attribute__((swiftcall)) (*SwiftStackItemInstanceMethod)(
-    SearchNavigationStackItem item,
-    void *self __attribute__((swift_context))
-);
-
-static SearchNavigationStackItem capturedNavigationRoot;
-static bool hasCapturedNavigationRoot;
-
 typedef void __attribute__((swiftcall)) (*SwiftOptionalCompletionInstanceMethod)(
+    void *completion,
+    void *completionContext,
+    void *self __attribute__((swift_context))
+);
+
+typedef struct __attribute__((aligned(8))) {
+    unsigned char storage[232];
+} ResultPlatterBehavior;
+
+_Static_assert(sizeof(ResultPlatterBehavior) == 232, "unexpected platter behavior layout");
+
+typedef ResultPlatterBehavior __attribute__((swiftcall)) (*SwiftBehaviorGetter)(void);
+typedef bool __attribute__((swiftcall)) (*SwiftBoolGetter)(void);
+
+typedef void __attribute__((swiftcall)) (*SwiftWindowSizeInvalidator)(
+    ResultPlatterBehavior behavior,
+    bool animated,
+    bool immediately,
     void *completion,
     void *completionContext,
     void *self __attribute__((swift_context))
@@ -51,6 +44,17 @@ bool CornerlightSpotlightBootstrap(void *windowManager) {
     }
     bootstrap(windowManager);
     return true;
+}
+
+bool CornerlightSpotlightUsesEnhancedSiri(void) {
+    static SwiftBoolGetter getter;
+    if (getter == NULL) {
+        getter = (SwiftBoolGetter)dlsym(
+            RTLD_DEFAULT,
+            "$s16GenerativeModels0aB12AvailabilityV22shouldShowEnhancedSiriSbvgZ"
+        );
+    }
+    return getter != NULL && getter();
 }
 
 bool CornerlightSpotlightLaunchAppsBrowsing(void *windowManager) {
@@ -98,49 +102,31 @@ bool CornerlightSpotlightClearSearch(void *searchViewController) {
     return true;
 }
 
-static void *navigationStackForSearchViewController(void *searchViewController) {
-    static SwiftObjectInstanceMethod getter;
-    if (getter == NULL) {
-        getter = (SwiftObjectInstanceMethod)dlsym(
-            RTLD_DEFAULT,
-            "$s19SpotlightUIInternal26SearchNavigationControllerC15navigationStackAA0cdG0Cvg"
-        );
-    }
-    if (getter == NULL || searchViewController == NULL) {
-        return NULL;
-    }
-    return getter(searchViewController);
-}
+bool CornerlightSpotlightApplyGridBrowseWindowBehavior(void *windowSize) {
+    static SwiftBehaviorGetter gridBrowseGetter;
+    static SwiftWindowSizeInvalidator invalidate;
+    static ResultPlatterBehavior gridBrowseBehavior;
+    static bool hasGridBrowseBehavior;
 
-bool CornerlightSpotlightCaptureSearchResultsRoot(void *searchViewController) {
-    static SwiftStackItemGetter rootGetter;
-    if (rootGetter == NULL) {
-        rootGetter = (SwiftStackItemGetter)dlsym(
+    if (gridBrowseGetter == NULL) {
+        gridBrowseGetter = (SwiftBehaviorGetter)dlsym(
             RTLD_DEFAULT,
-            "$s19SpotlightUIInternal21SearchNavigationStackC4rootAA0cdE4ItemVvgTj"
+            "$s17SpotlightUIShared21ResultPlatterBehaviorV10gridBrowseACvgZ"
         );
     }
-    void *navigationStack = navigationStackForSearchViewController(searchViewController);
-    if (rootGetter == NULL || navigationStack == NULL) {
+    if (invalidate == NULL) {
+        invalidate = (SwiftWindowSizeInvalidator)dlsym(
+            RTLD_DEFAULT,
+            "$s19SpotlightUIInternal20ObservableWindowSizeC10invalidate4with8animated11immediately10completiony0A8UIShared21ResultPlatterBehaviorV_S2byycSgtFTj"
+        );
+    }
+    if (gridBrowseGetter == NULL || invalidate == NULL || windowSize == NULL) {
         return false;
     }
-    capturedNavigationRoot = rootGetter(navigationStack);
-    hasCapturedNavigationRoot = true;
-    return true;
-}
-
-bool CornerlightSpotlightRestoreSearchResultsRoot(void *searchViewController) {
-    static SwiftStackItemInstanceMethod replaceRoot;
-    if (replaceRoot == NULL) {
-        replaceRoot = (SwiftStackItemInstanceMethod)dlsym(
-            RTLD_DEFAULT,
-            "$s19SpotlightUIInternal21SearchNavigationStackC11replaceRoot4withyAA0cdE4ItemV_tFTj"
-        );
+    if (!hasGridBrowseBehavior) {
+        gridBrowseBehavior = gridBrowseGetter();
+        hasGridBrowseBehavior = true;
     }
-    void *navigationStack = navigationStackForSearchViewController(searchViewController);
-    if (replaceRoot == NULL || navigationStack == NULL || !hasCapturedNavigationRoot) {
-        return false;
-    }
-    replaceRoot(capturedNavigationRoot, navigationStack);
+    invalidate(gridBrowseBehavior, false, true, NULL, NULL, windowSize);
     return true;
 }

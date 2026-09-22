@@ -180,8 +180,16 @@ struct LauncherPinningUserStoryTests {
             )
             _ = imageView.perform(NSSelectorFromString("setTlkImage:"), with: tlkImage)
         }
-        host.nativeItemWillDisplay(pinnedItem, at: NSIndexPath(forItem: 0, inSection: 0))
-        host.nativeItemWillDisplay(recentItem, at: NSIndexPath(forItem: 1, inSection: 0))
+        host.nativeItemWillDisplay(
+            pinnedItem,
+            in: host.retainedNativeCollectionView,
+            at: NSIndexPath(forItem: 0, inSection: 0),
+        )
+        host.nativeItemWillDisplay(
+            recentItem,
+            in: host.retainedNativeCollectionView,
+            at: NSIndexPath(forItem: 1, inSection: 0),
+        )
         let pinnedTLKImage = try #require(
             pinnedImage.perform(NSSelectorFromString("tlkImage"))?.takeUnretainedValue(),
         )
@@ -199,6 +207,7 @@ struct LauncherPinningUserStoryTests {
         pinnedPaths.removeAll()
         host.nativeItemWillDisplay(
             pinnedItem,
+            in: host.retainedNativeCollectionView,
             at: NSIndexPath(forItem: 0, inSection: 0),
         )
         let clearedTLKImage = try #require(

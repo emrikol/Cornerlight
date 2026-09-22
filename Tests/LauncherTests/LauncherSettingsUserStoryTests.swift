@@ -4,6 +4,24 @@ import Testing
 
 struct LauncherSettingsUserStoryTests {
     @Test @MainActor
+    func `settings follows the launcher to the active space`() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 550),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false,
+        )
+
+        LauncherSettingsWindowPresentationPolicy.prepare(window)
+
+        #expect(window.collectionBehavior.contains(.moveToActiveSpace))
+        #expect(window.collectionBehavior.contains(.fullScreenAuxiliary))
+        #expect(
+            LauncherSettingsWindowPresentationPolicy.applicationActivationPolicy == .accessory,
+        )
+    }
+
+    @Test @MainActor
     func `launch at login uses native registration and approval paths`() {
         #expect(
             LauncherLoginItemActionPolicy.action(enabling: true, status: .disabled) == .register,

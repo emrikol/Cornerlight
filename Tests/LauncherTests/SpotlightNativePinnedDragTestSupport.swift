@@ -31,10 +31,11 @@ private func makePinnedReorderSurface(
     for host: SpotlightNativeLauncherUI,
 ) throws -> (controller: AnyObject, window: NSWindow) {
     let controller = try #require(
-        host.collectionView.perform(NSSelectorFromString("controller"))?
+        host.retainedNativeCollectionView
+            .perform(NSSelectorFromString("controller"))?
             .takeUnretainedValue(),
     )
-    let resultsController = try #require(nativeResultsController(in: host))
+    let resultsController = host.retainedNativeResultsController
     let sections = try #require(
         resultsController.perform(NSSelectorFromString("sections"))?
             .takeUnretainedValue() as? NSArray,
@@ -94,7 +95,9 @@ final class NativePinnedReorderHarness {
         host.update(suggestions: pinnedApplications + [recent], applications: [])
         let surface = try makePinnedReorderSurface(for: host)
         collectionController = surface.controller
-        collectionDataSource = try #require(host.collectionView.dataSource as AnyObject?)
+        collectionDataSource = try #require(
+            host.retainedNativeCollectionView.dataSource as AnyObject?,
+        )
         window = surface.window
     }
 
@@ -108,14 +111,14 @@ final class NativePinnedReorderHarness {
         )(
             collectionController,
             canDragSelector,
-            host.collectionView,
+            host.retainedNativeCollectionView,
             indexPaths,
             nil,
         )
     }
 
     var collectionIsSelectable: Bool {
-        host.collectionView.isSelectable
+        host.retainedNativeCollectionView.isSelectable
     }
 
     var usesSeparateSearchUIDataSource: Bool {
@@ -125,17 +128,18 @@ final class NativePinnedReorderHarness {
 
     func updatePointerReorder(source: Int, destination: Int) -> Bool {
         let sourcePath = IndexPath(item: source, section: 0)
-        host.collectionView.selectionIndexPaths = [sourcePath]
-        host.beginPinnedApplicationPointerReorder(in: host.collectionView)
+        let collectionView = host.retainedNativeCollectionView
+        collectionView.selectionIndexPaths = [sourcePath]
+        host.beginPinnedApplicationPointerReorder(in: collectionView)
 
         let frames = pinnedApplications.indices.compactMap { item in
-            host.collectionView.collectionViewLayout?
+            collectionView.collectionViewLayout?
                 .layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame
         }
         guard frames.count == pinnedApplications.count else { return false }
         let point = NSPoint(x: frames[destination].minX, y: frames[destination].midY)
         return host.updatePinnedApplicationPointerReorder(
-            in: host.collectionView,
+            in: collectionView,
             at: point,
         )
     }
@@ -143,27 +147,28 @@ final class NativePinnedReorderHarness {
     func updatePointerDragPreview(source: Int, destination: Int) -> (NSPoint, NSRect?) {
         let sourcePath = IndexPath(item: source, section: 0)
         let destinationPath = IndexPath(item: destination, section: 0)
-        let sourceFrame = host.collectionView.collectionViewLayout?
+        let collectionView = host.retainedNativeCollectionView
+        let sourceFrame = collectionView.collectionViewLayout?
             .layoutAttributesForItem(at: sourcePath)?.frame ?? .zero
-        let destinationFrame = host.collectionView.collectionViewLayout?
+        let destinationFrame = collectionView.collectionViewLayout?
             .layoutAttributesForItem(at: destinationPath)?.frame ?? .zero
-        let sourceImageView = host.collectionView.item(at: sourcePath).flatMap {
+        let sourceImageView = collectionView.item(at: sourcePath).flatMap {
             nativePinnedDragImage(in: $0.view)
         }
         let sourcePoint = sourceImageView.map { imageView in
             imageView.convert(
                 NSPoint(x: imageView.bounds.midX, y: imageView.bounds.midY),
-                to: host.collectionView,
+                to: collectionView,
             )
         } ?? NSPoint(x: sourceFrame.midX, y: sourceFrame.midY)
         let destinationPoint = NSPoint(x: destinationFrame.midX, y: destinationFrame.midY)
-        host.collectionView.selectionIndexPaths = [sourcePath]
+        collectionView.selectionIndexPaths = [sourcePath]
         host.beginPinnedApplicationPointerReorder(
-            in: host.collectionView,
+            in: collectionView,
             at: sourcePoint,
         )
         _ = host.updatePinnedApplicationPointerReorder(
-            in: host.collectionView,
+            in: collectionView,
             at: destinationPoint,
         )
         return (destinationPoint, host.pinnedApplicationDragPreviewFrame)

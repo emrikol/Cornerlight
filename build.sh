@@ -301,6 +301,19 @@ if [[ "$CONFIGURATION" == "release" ]]; then
     strip -S -x "$STAGED_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
 fi
 
+# SwiftPM's Xcode build backend currently records the deployment target in both the `minos` and
+# `sdk` fields even though it compiles against the selected macOS SDK. AppKit uses the SDK field
+# for linked-on-or-after behavior, including macOS 27's native material treatment. Correct that
+# metadata before signing while retaining the 26.6 deployment target.
+MACOS_SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+SDK_STAMPED_EXECUTABLE="$STAGE_ROOT/$EXECUTABLE_NAME.sdk-stamped"
+xcrun vtool \
+    -set-build-version macos 26.6 "$MACOS_SDK_VERSION" \
+    -replace \
+    -output "$SDK_STAMPED_EXECUTABLE" \
+    "$STAGED_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
+mv "$SDK_STAMPED_EXECUTABLE" "$STAGED_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
+
 RESOLVED_SIGN_IDENTITY="$(resolve_signing_identity)"
 
 sign_embedded_component() {
