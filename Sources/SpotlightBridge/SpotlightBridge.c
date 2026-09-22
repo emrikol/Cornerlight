@@ -7,12 +7,6 @@ typedef void __attribute__((swiftcall)) (*SwiftInstanceMethod)(
     void *self __attribute__((swift_context))
 );
 
-typedef void __attribute__((swiftcall)) (*SwiftOptionalCompletionInstanceMethod)(
-    void *completion,
-    void *completionContext,
-    void *self __attribute__((swift_context))
-);
-
 bool CornerlightSpotlightBootstrap(void *windowManager) {
     static SwiftInstanceMethod bootstrap;
     if (bootstrap == NULL) {
@@ -28,21 +22,6 @@ bool CornerlightSpotlightBootstrap(void *windowManager) {
     return true;
 }
 
-bool CornerlightSpotlightLaunchAppsBrowsing(void *windowManager) {
-    static SwiftOptionalCompletionInstanceMethod launch;
-    if (launch == NULL) {
-        launch = (SwiftOptionalCompletionInstanceMethod)dlsym(
-            RTLD_DEFAULT,
-            "$s19SpotlightUIInternal13WindowManagerC18launchAppsBrowsing10completionyyycSg_tF"
-        );
-    }
-    if (launch == NULL || windowManager == NULL) {
-        return false;
-    }
-    launch(NULL, NULL, windowManager);
-    return true;
-}
-
 bool CornerlightSpotlightDismissAll(void *windowManager) {
     static SwiftInstanceMethod dismiss;
     if (dismiss == NULL) {
@@ -55,5 +34,20 @@ bool CornerlightSpotlightDismissAll(void *windowManager) {
         return false;
     }
     dismiss(windowManager);
+    return true;
+}
+
+bool CornerlightSpotlightClearSearch(void *searchViewController) {
+    static SwiftInstanceMethod clearSearch;
+    if (clearSearch == NULL) {
+        clearSearch = (SwiftInstanceMethod)dlsym(
+            RTLD_DEFAULT,
+            "$s19SpotlightUIInternal20SearchViewControllerC05clearC0yyF"
+        );
+    }
+    if (clearSearch == NULL || searchViewController == NULL) {
+        return false;
+    }
+    clearSearch(searchViewController);
     return true;
 }

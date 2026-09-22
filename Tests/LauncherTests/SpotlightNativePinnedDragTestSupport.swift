@@ -10,6 +10,16 @@ private typealias NativeCanDragPinnedItems = @convention(c) (
     NSEvent?,
 ) -> Bool
 
+@MainActor
+private func nativePinnedDragImage(
+    in view: NSView,
+) -> NSView? {
+    if NSStringFromClass(type(of: view)) == "SearchUIImageView" {
+        return view
+    }
+    return view.subviews.lazy.compactMap(nativePinnedDragImage(in:)).first
+}
+
 final class PinnedMoveObservation {
     var applicationURL: URL?
     var insertionIndex: Int?
@@ -137,7 +147,15 @@ final class NativePinnedReorderHarness {
             .layoutAttributesForItem(at: sourcePath)?.frame ?? .zero
         let destinationFrame = host.collectionView.collectionViewLayout?
             .layoutAttributesForItem(at: destinationPath)?.frame ?? .zero
-        let sourcePoint = NSPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+        let sourceImageView = host.collectionView.item(at: sourcePath).flatMap {
+            nativePinnedDragImage(in: $0.view)
+        }
+        let sourcePoint = sourceImageView.map { imageView in
+            imageView.convert(
+                NSPoint(x: imageView.bounds.midX, y: imageView.bounds.midY),
+                to: host.collectionView,
+            )
+        } ?? NSPoint(x: sourceFrame.midX, y: sourceFrame.midY)
         let destinationPoint = NSPoint(x: destinationFrame.midX, y: destinationFrame.midY)
         host.collectionView.selectionIndexPaths = [sourcePath]
         host.beginPinnedApplicationPointerReorder(

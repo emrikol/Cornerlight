@@ -2478,8 +2478,8 @@ final class SpotlightNativeLauncherUI {
 
     // macOS 27 moved Spotlight's controller construction into
     // SpotlightUIInternal.WindowManager. Its public Objective-C initializer is a trap, so
-    // construct it through Spotlight's real AppDelegate and use the exported Swift entry point
-    // that the system Spotlight executable calls.
+    // construct it through Spotlight's real AppDelegate and use the native presentation entry
+    // point that the system Spotlight executable calls.
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private init?(spotlightUIInternal _: Void) {
         guard let appDelegateClass = NSClassFromString(
@@ -2519,12 +2519,18 @@ final class SpotlightNativeLauncherUI {
         }
         Self.setObject(manager, on: menuItem, selector: "setDelegate:")
         Self.setObject(manager, on: menuItem, selector: "setFocusRetentionProvider:")
+        let presentSelector = NSSelectorFromString("presentSpotlightWithCompletionHandler:")
         guard CornerlightSpotlightBootstrap(managerPointer),
-              CornerlightSpotlightLaunchAppsBrowsing(managerPointer)
+              manager.responds(to: presentSelector)
         else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: WindowManager entry points")
             return nil
         }
+        let preparationCompletion: @convention(block) () -> Void = {}
+        unsafeBitCast(
+            manager.method(for: presentSelector),
+            to: CompletionAction.self,
+        )(manager, presentSelector, preparationCompletion)
 
         guard let panel = NSApp.windows.reversed().first(where: {
             guard !existingWindows.contains(ObjectIdentifier($0)) else { return false }
@@ -2539,7 +2545,7 @@ final class SpotlightNativeLauncherUI {
             return nil
         }
 
-        // Launch creates the app-browse state synchronously, while SwiftUI installs its AppKit
+        // Presentation creates the search state synchronously, while SwiftUI installs its AppKit
         // controller surface on the next run-loop turn. Keep the panel ordered out while that
         // native hierarchy materializes so startup never flashes Spotlight.
         let originalAlphaValue = panel.alphaValue
@@ -2714,18 +2720,22 @@ final class SpotlightNativeLauncherUI {
         prepareForWindowServerInvocation()
         scheduleTransitionRecovery(for: token, operation: "presentation")
         if let windowManager {
-            let managerPointer = Unmanaged.passUnretained(windowManager).toOpaque()
-            guard CornerlightSpotlightLaunchAppsBrowsing(managerPointer) else {
+            let selector = NSSelectorFromString("presentSpotlightWithCompletionHandler:")
+            guard windowManager.responds(to: selector) else {
                 lifecycleLease.completeNativeInvocation(token)
                 resolveNativeTransition(transitionGate.expire(token))
                 return
             }
-            primeMacOS27ResultsPresentationIfNeeded()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self, transitionGate.isCurrent(token) else { return }
+            let completionBlock: @convention(block) () -> Void = { [weak self] in
+                guard let self else { return }
                 lifecycleLease.completeNativeInvocation(token)
                 nativeTransitionDidComplete(token)
             }
+            unsafeBitCast(
+                windowManager.method(for: selector),
+                to: CompletionAction.self,
+            )(windowManager, selector, completionBlock)
+            primeMacOS27ResultsPresentationIfNeeded()
             return
         }
         let selector = NSSelectorFromString("launchAppsBrowsingWithCompletion:")
@@ -3444,6 +3454,11 @@ final class SpotlightNativeLauncherUI {
     func resetQuery() {
         if runtimeGeneration == .spotlightAppMacOS {
             Self.call(true, on: viewController, selector: "goToAppsSearchWithResetQuery:")
+        } else {
+            let controllerPointer = Unmanaged.passUnretained(viewController).toOpaque()
+            if !CornerlightSpotlightClearSearch(controllerPointer) {
+                CornerlightTrace.lifecycle.error("macOS 27 native search reset unavailable")
+            }
         }
         searchField.stringValue = ""
     }

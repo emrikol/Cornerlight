@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-22
+
+- Present macOS 27's launcher through the native Spotlight window state and clear its query model before each invocation, restoring the rounded background and preventing a previous search from leaving the launcher expanded.
+
 ## [0.1.6] - 2026-09-21
 
 - Initialize macOS 27's dynamic Spotlight results host on the first app-browser presentation so a cold launch no longer collapses the application grid to zero height.
