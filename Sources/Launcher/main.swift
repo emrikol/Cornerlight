@@ -2365,6 +2365,12 @@ final class SpotlightNativeLauncherUI {
         Bool,
         SnapshotCompletion,
     ) -> Void
+    private typealias IndexPathSelector = @convention(c) (
+        AnyObject,
+        Selector,
+        NSIndexPath,
+        Bool,
+    ) -> Bool
     private typealias CompletionAction = @convention(c) (
         AnyObject,
         Selector,
@@ -3329,6 +3335,7 @@ final class SpotlightNativeLauncherUI {
     }
 
     func restoreEnumeratedSections() {
+        let snapshotQuery = searchField.stringValue
         SpotlightNativeSectionsHook.setEnumeratedSections(
             [],
             on: topHitResultsController,
@@ -3347,9 +3354,39 @@ final class SpotlightNativeLauncherUI {
             sections: scrollingSections,
             to: collectionView,
         ) { [weak self] in
-            self?.configureMacOS27NativeScrollerInsets()
+            guard let self else { return }
+            configureMacOS27NativeScrollerInsets()
+            selectFirstNativeResult(for: snapshotQuery)
         }
         configureMacOS27NativeScrollerInsets()
+    }
+
+    private func selectFirstNativeResult(for snapshotQuery: String) {
+        guard !snapshotQuery.isEmpty,
+              searchField.stringValue == snapshotQuery,
+              let collectionController = collectionView
+              .perform(NSSelectorFromString("controller"))?
+              .takeUnretainedValue()
+        else { return }
+
+        let firstIndexPathSelector = NSSelectorFromString("firstSelectableIndexPath")
+        let selectIndexPathSelector = NSSelectorFromString("selectIndexPath:scrollToVisible:")
+        guard collectionController.responds(to: firstIndexPathSelector),
+              collectionController.responds(to: selectIndexPathSelector),
+              let firstIndexPath = collectionController
+              .perform(firstIndexPathSelector)?
+              .takeUnretainedValue() as? NSIndexPath
+        else { return }
+
+        _ = unsafeBitCast(
+            collectionController.method(for: selectIndexPathSelector),
+            to: IndexPathSelector.self,
+        )(
+            collectionController,
+            selectIndexPathSelector,
+            firstIndexPath,
+            false,
+        )
     }
 
     func nativeSectionsWereProposed() {

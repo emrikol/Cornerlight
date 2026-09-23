@@ -657,6 +657,32 @@ struct SpotlightNativeHostUserStoryTests {
         #expect(observedQueries == ["cal"])
     }
 
+    @Test @MainActor
+    func `partial application query selects Spotlights best result for Return`() throws {
+        _ = NSApplication.shared
+        let host = try #require(SpotlightNativeLauncherUI())
+        host.searchField.stringValue = "musi"
+        host.update(
+            suggestions: [],
+            applications: [
+                ApplicationRecord(
+                    name: "Music",
+                    url: URL(fileURLWithPath: "/System/Applications/Music.app"),
+                ),
+            ],
+        )
+
+        let deadline = Date(timeIntervalSinceNow: 1)
+        while host.retainedNativeCollectionView.selectionIndexPaths.isEmpty,
+              RunLoop.current.run(mode: .default, before: deadline) {}
+
+        #expect(
+            host.retainedNativeCollectionView.selectionIndexPaths == [
+                IndexPath(item: 0, section: 0),
+            ],
+        )
+    }
+
     @MainActor
     private func firstDescendant(named name: String, in root: NSView) -> NSView? {
         if NSStringFromClass(type(of: root)) == name {

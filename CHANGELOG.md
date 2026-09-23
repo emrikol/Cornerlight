@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-09-23
+
+- Restore Spotlight's native first-result selection for partial application-name queries on macOS 27, so Return opens the best match without requiring the full name.
+
 ## [0.1.18] - 2026-09-23
 
 - Preserve the Siri AI Beta launcher's process-wide activation owner across display changes, preventing a crash after docking, undocking, or entering clamshell mode.
