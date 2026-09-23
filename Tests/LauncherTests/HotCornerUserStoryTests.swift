@@ -99,6 +99,20 @@ struct HotCornerUserStoryTests {
     }
 
     @Test
+    func `leaving the corner rearms even if WindowServer drops the exit event`() {
+        var gate = HotCornerEntryGate()
+        _ = gate.consume(eventType: HotCornerEntryGate.enteredEventType)
+
+        gate.reconcile(pointerIsInside: true)
+        #expect(!gate.isArmed)
+
+        gate.reconcile(pointerIsInside: false)
+        #expect(gate.isArmed)
+        let nextEntry = gate.consume(eventType: HotCornerEntryGate.enteredEventType)
+        #expect(nextEntry)
+    }
+
+    @Test
     func `locked sessions and pressed mouse buttons suppress invocation`() {
         #expect(!HotCornerInvocationPolicy.shouldInvoke(screenLocked: true, mouseButtonPressed: false))
         #expect(!HotCornerInvocationPolicy.shouldInvoke(screenLocked: false, mouseButtonPressed: true))

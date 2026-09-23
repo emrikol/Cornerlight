@@ -8,6 +8,20 @@ import Testing
 // The suite audits one version-pinned native Spotlight ownership boundary.
 // swiftlint:disable:next type_body_length
 struct SpotlightNativeHostUserStoryTests {
+    @Test
+    func `enhanced Siri dismissal keeps the split results snapshot sized`() {
+        #expect(
+            !SpotlightNativeDismissedContentPolicy.clearsNativeSnapshot(
+                usesEnhancedSiri: true,
+            ),
+        )
+        #expect(
+            SpotlightNativeDismissedContentPolicy.clearsNativeSnapshot(
+                usesEnhancedSiri: false,
+            ),
+        )
+    }
+
     @Test @MainActor
     // swiftlint:disable:next function_body_length
     func `native app browse invocation is owned by Spotlights actual runtime graph`() throws {
@@ -31,6 +45,27 @@ struct SpotlightNativeHostUserStoryTests {
                     ? "CampoUIInternal.MacWindowManager"
                     : "SpotlightUIInternal.WindowManager"))
             #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
+            if usesEnhancedSiri {
+                let menuItem = try #require(
+                    nativeObjectIvar(named: "spotlightMenuItem", on: host.appDelegate),
+                )
+                let keyCommandManager = try #require(
+                    nativeObjectIvar(named: "spotlightKeyCommandManager", on: host.appDelegate),
+                )
+                #expect(
+                    menuItem.perform(NSSelectorFromString("delegate"))?
+                        .takeUnretainedValue() === host.appDelegate,
+                )
+                #expect(
+                    keyCommandManager.perform(NSSelectorFromString("delegate"))?
+                        .takeUnretainedValue() === host.appDelegate,
+                )
+                #expect(
+                    manager.responds(
+                        to: NSSelectorFromString("applicationLostFocusWithReason:"),
+                    ),
+                )
+            }
             #expect(host.viewController.responds(to: NSSelectorFromString("insertText:")))
             #expect(host.restoresAppsBrowsingResults)
             #expect(host.panel.windowController != nil)
@@ -189,11 +224,17 @@ struct SpotlightNativeHostUserStoryTests {
         #expect(liveCollectionView.frame.height > 1)
         #expect(liveResultsController.preferredContentSize.height > 1)
         #expect(nativePageController.selectedViewController?.view.isHidden == false)
+        let initialSelectedWidth = liveSelectedController.view.frame.width
+        let initialSelectedPreferredWidth = liveSelectedController.preferredContentSize.width
+        let initialCollectionWidth = liveCollectionView.frame.width
+        let initialScrollWidth = liveCollectionView.enclosingScrollView?.frame.width
+        #expect(initialSelectedPreferredWidth == initialSelectedWidth)
+        #expect(initialCollectionWidth == initialSelectedWidth)
+        #expect(initialScrollWidth == initialSelectedWidth)
 
         host.dismiss()
         await waitForNativeSpotlightPresentation(timeout: 0.5) { false }
-        host.update(suggestions: [], applications: [])
-        host.purgeMemory()
+        host.releaseDismissedContent()
         host.update(
             suggestions: [],
             applications: [
@@ -205,8 +246,12 @@ struct SpotlightNativeHostUserStoryTests {
         )
         host.invoke()
         await waitForNativeSpotlightPresentation {
-            host.retainedNativeCollectionView.numberOfSections > 0 &&
-                host.retainedNativeCollectionView.numberOfItems(inSection: 0) > 0
+            guard let pageController = nativeAppsBrowsingPageController(in: host.view),
+                  let selectedController = pageController.selectedViewController
+            else { return false }
+            return host.retainedNativeCollectionView.numberOfSections > 0 &&
+                host.retainedNativeCollectionView.numberOfItems(inSection: 0) > 0 &&
+                selectedController.view.frame.width == initialSelectedWidth
         }
 
         let relaunchedCollectionView = host.retainedNativeCollectionView
@@ -223,6 +268,12 @@ struct SpotlightNativeHostUserStoryTests {
         #expect(NSStringFromClass(type(of: relaunchedSelectedController)).contains("SandwichViewController"))
         #expect(relaunchedSelectedController.view.frame.height > 1)
         #expect(relaunchedCollectionView.frame.height > 1)
+        #expect(relaunchedSelectedController.view.frame.width == initialSelectedWidth)
+        #expect(
+            relaunchedSelectedController.preferredContentSize.width == initialSelectedPreferredWidth,
+        )
+        #expect(relaunchedCollectionView.frame.width == initialCollectionWidth)
+        #expect(relaunchedCollectionView.enclosingScrollView?.frame.width == initialScrollWidth)
     }
 
     @Test @MainActor

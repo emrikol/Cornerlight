@@ -942,8 +942,11 @@ private struct SkyLightHotCornerAPI {
 }
 
 @MainActor
+// WindowServer registration and its lost-exit recovery share one lifecycle owner.
+// swiftlint:disable:next type_body_length
 private final class HotCornerController: NSObject {
     private static let backgroundEventMask: UInt64 = 0x302
+    private static let exitReconciliationInterval: TimeInterval = 0.1
 
     private let corner: LauncherHotCorner
     private let onEnter: () -> Void
@@ -952,6 +955,7 @@ private final class HotCornerController: NSObject {
     private var region: OpaquePointer?
     private var eventPort: CFMachPort?
     private var eventRunLoopSource: CFRunLoopSource?
+    private var exitReconciliationWorkItem: DispatchWorkItem?
     private var entryGate = HotCornerEntryGate()
     private var cornerRectangles: [CGRect] = []
 
@@ -999,6 +1003,8 @@ private final class HotCornerController: NSObject {
     }
 
     func shutdown() {
+        exitReconciliationWorkItem?.cancel()
+        exitReconciliationWorkItem = nil
         if let api {
             if connectionID != 0 {
                 _ = api.setBackgroundEventMask(connectionID, 0, nil)
@@ -1135,9 +1141,29 @@ private final class HotCornerController: NSObject {
                 screenLocked: Self.isScreenLocked,
                 mouseButtonPressed: Self.isMouseButtonPressed,
             ) {
+                reconcileExitIfWindowServerDropsIt()
                 onEnter()
             }
         }
+    }
+
+    private func reconcileExitIfWindowServerDropsIt() {
+        exitReconciliationWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let pointerIsInside = Self.pointerIsInside(cornerRectangles)
+            entryGate.reconcile(pointerIsInside: pointerIsInside)
+            if pointerIsInside {
+                reconcileExitIfWindowServerDropsIt()
+            } else {
+                exitReconciliationWorkItem = nil
+            }
+        }
+        exitReconciliationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.exitReconciliationInterval,
+            execute: workItem,
+        )
     }
 
     private static var isScreenLocked: Bool {
@@ -1225,6 +1251,12 @@ struct HotCornerEntryGate {
 
     mutating func rebuild(pointerIsInside: Bool) {
         isArmed = !pointerIsInside
+    }
+
+    mutating func reconcile(pointerIsInside: Bool) {
+        if !pointerIsInside {
+            isArmed = true
+        }
     }
 
     mutating func consume(eventType: UInt32, pointerIsInside: Bool = false) -> Bool {
@@ -2186,12 +2218,19 @@ enum SpotlightNativeResultScrollerInsets {
         else { return false }
 
         let cornerRadius = min(maximumCornerRadius, scrollView.bounds.height / 2)
-        scrollView.scrollerInsets = NSEdgeInsets(
+        let insets = NSEdgeInsets(
             top: cornerRadius,
             left: 0,
             bottom: cornerRadius,
             right: 0,
         )
+        let currentInsets = scrollView.scrollerInsets
+        if currentInsets.top != insets.top
+            || currentInsets.left != insets.left
+            || currentInsets.bottom != insets.bottom
+            || currentInsets.right != insets.right {
+            scrollView.scrollerInsets = insets
+        }
         return true
     }
 
@@ -2205,6 +2244,12 @@ enum SpotlightNativeResultScrollerInsets {
         }
         return symbol.load(as: CGFloat.self)
     }()
+}
+
+enum SpotlightNativeDismissedContentPolicy {
+    static func clearsNativeSnapshot(usesEnhancedSiri: Bool) -> Bool {
+        !usesEnhancedSiri
+    }
 }
 
 @MainActor
@@ -2281,6 +2326,7 @@ final class SpotlightNativeLauncherUI {
     private static let macOS27ControllerRetryDelay: TimeInterval = 0.01
     private static let macOS27ControllerRetryLimit = 100
     private static let macOS27GridBrowseSettlementDelay: TimeInterval = 0.075
+    private static let enhancedSiriDismissalSettlementDelay: TimeInterval = 0.25
 
     private typealias MainWindowInitializer = @convention(c) (
         AnyObject,
@@ -2376,6 +2422,9 @@ final class SpotlightNativeLauncherUI {
     private var retainsContentForQueuedPresentation = false
     private var snapshotQueryID: UInt = 0
     private var gridBrowseSizingWorkItem: DispatchWorkItem?
+    private var enhancedSiriPresentationWorkItem: DispatchWorkItem?
+    private var pendingEnhancedSiriPresentationToken: SpotlightNativeTransitionGate.Token?
+    private var enhancedSiriLastOrderOutTime: DispatchTime?
     private var transitionGate = SpotlightNativeTransitionGate()
     private var lifecycleLease = SpotlightNativeLifecycleLease()
     private lazy var pinnedBadgeImage = Self.makePinnedBadgeImage()
@@ -2651,14 +2700,16 @@ final class SpotlightNativeLauncherUI {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: event collector queue")
             return nil
         }
-        if let keyCommandManager = Self.objectIvar(
-            named: usesEnhancedSiri ? "spotlightKeyCommandManager" : "keyCommandManager",
-            on: appDelegate,
-        ) {
-            Self.setObject(manager, on: keyCommandManager, selector: "setDelegate:")
+        if !usesEnhancedSiri {
+            if let keyCommandManager = Self.objectIvar(
+                named: "keyCommandManager",
+                on: appDelegate,
+            ) {
+                Self.setObject(manager, on: keyCommandManager, selector: "setDelegate:")
+            }
+            Self.setObject(manager, on: menuItem, selector: "setDelegate:")
+            Self.setObject(manager, on: menuItem, selector: "setFocusRetentionProvider:")
         }
-        Self.setObject(manager, on: menuItem, selector: "setDelegate:")
-        Self.setObject(manager, on: menuItem, selector: "setFocusRetentionProvider:")
         guard usesEnhancedSiri || CornerlightSpotlightBootstrap(managerPointer) else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: WindowManager entry points")
             return nil
@@ -2849,7 +2900,10 @@ final class SpotlightNativeLauncherUI {
 
     var isPresented: Bool {
         let selector = NSSelectorFromString("spotlightIsVisible")
-        let presentationOwner = windowManager ?? appDelegate
+        // Siri AI owns the visible prompt window; its app delegate forwards this getter to
+        // MacAssistantIslandCoordinator. The results WindowManager can remain in `.apps` while
+        // the split-window island is already hidden, so it is not the presentation authority.
+        let presentationOwner = usesEnhancedSiriRuntime ? appDelegate : (windowManager ?? appDelegate)
         guard presentationOwner.responds(to: selector) else { return panel.isVisible }
         return unsafeBitCast(
             presentationOwner.method(for: selector),
@@ -2860,10 +2914,80 @@ final class SpotlightNativeLauncherUI {
     func invoke() {
         switch transitionGate.requestToggle() {
         case let .start(token):
-            performNativeInvocation(token: token)
+            if shouldDeferEnhancedSiriPresentation {
+                deferEnhancedSiriPresentation(token: token)
+            } else {
+                performNativeInvocation(token: token)
+            }
         case .queued:
             CornerlightTrace.lifecycle.notice("native Spotlight toggle queued during transition")
         }
+    }
+
+    private var shouldDeferEnhancedSiriPresentation: Bool {
+        guard usesEnhancedSiriRuntime, !isPresented else { return false }
+        if panel.isVisible {
+            return true
+        }
+        guard let enhancedSiriLastOrderOutTime else { return false }
+        return enhancedSiriSettlementDelay(after: enhancedSiriLastOrderOutTime) > 0
+    }
+
+    private func deferEnhancedSiriPresentation(token: SpotlightNativeTransitionGate.Token) {
+        pendingEnhancedSiriPresentationToken = token
+        CornerlightTrace.lifecycle.notice(
+            "waiting for Enhanced Siri split-window dismissal to settle",
+        )
+        if !panel.isVisible {
+            scheduleEnhancedSiriPresentation(
+                token: token,
+                after: enhancedSiriSettlementDelay(
+                    after: enhancedSiriLastOrderOutTime ?? .now(),
+                ),
+            )
+        }
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.nativeTransitionRecoveryDelay,
+        ) { [weak self] in
+            guard let self,
+                  pendingEnhancedSiriPresentationToken == token,
+                  transitionGate.isCurrent(token)
+            else { return }
+            pendingEnhancedSiriPresentationToken = nil
+            CornerlightTrace.lifecycle.error(
+                "recovering timed-out Enhanced Siri dismissal settlement",
+            )
+            resolveNativeTransition(transitionGate.expire(token))
+            scheduleDismissalCallback()
+        }
+    }
+
+    private func scheduleEnhancedSiriPresentation(
+        token: SpotlightNativeTransitionGate.Token,
+        after delay: TimeInterval,
+    ) {
+        enhancedSiriPresentationWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  pendingEnhancedSiriPresentationToken == token,
+                  transitionGate.isCurrent(token),
+                  !panel.isVisible
+            else { return }
+            pendingEnhancedSiriPresentationToken = nil
+            performNativeInvocation(token: token)
+        }
+        enhancedSiriPresentationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0, delay),
+            execute: workItem,
+        )
+    }
+
+    private func enhancedSiriSettlementDelay(after orderOutTime: DispatchTime) -> TimeInterval {
+        let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds
+            - orderOutTime.uptimeNanoseconds
+        let elapsed = TimeInterval(elapsedNanoseconds) / 1_000_000_000
+        return max(0, Self.enhancedSiriDismissalSettlementDelay - elapsed)
     }
 
     private func performNativeInvocation(token: SpotlightNativeTransitionGate.Token) {
@@ -3205,12 +3329,27 @@ final class SpotlightNativeLauncherUI {
     }
 
     func nativePanelDidOrderOut() {
+        if usesEnhancedSiriRuntime {
+            enhancedSiriLastOrderOutTime = .now()
+            if let token = pendingEnhancedSiriPresentationToken,
+               transitionGate.isCurrent(token) {
+                // Content was prepared for the queued hot-corner entry. Keep it alive until the
+                // delayed presentation instead of purging and rebuilding Spotlight's hierarchy.
+                retainsContentForQueuedPresentation = true
+                scheduleEnhancedSiriPresentation(
+                    token: token,
+                    after: Self.enhancedSiriDismissalSettlementDelay,
+                )
+            }
+        }
         scheduleDismissalCallback()
     }
 
     func consumeQueuedPresentationContentRetention() -> Bool {
+        let hasPendingEnhancedSiriPresentation = usesEnhancedSiriRuntime &&
+            pendingEnhancedSiriPresentationToken.map(transitionGate.isCurrent) == true
         defer { retainsContentForQueuedPresentation = false }
-        return retainsContentForQueuedPresentation
+        return retainsContentForQueuedPresentation || hasPendingEnhancedSiriPresentation
     }
 
     func addApplicationContextMenuItems(to menu: NSMenu, applicationURL: URL) {
@@ -3918,12 +4057,29 @@ final class SpotlightNativeLauncherUI {
     }
 
     func nativeResultsCollectionDidLayout() {
-        configureMacOS27NativeScrollerInsets()
+        // Setting scrollerInsets invalidates AppKit layout. Escape the native controller's
+        // viewDidLayout stack rather than recursively entering layout from our hook.
+        DispatchQueue.main.async { [weak self] in
+            self?.configureMacOS27NativeScrollerInsets()
+        }
     }
 
     func purgeMemory() {
         _ = topHitResultsController.perform(NSSelectorFromString("purgeMemory"))
         _ = resultsController.perform(NSSelectorFromString("purgeMemory"))
+    }
+
+    func releaseDismissedContent() {
+        // Emptying the live snapshot while Enhanced Siri's split results window is hidden makes
+        // its SandwichViewController fall back to the compact 520-point content width. The island
+        // runtime does not run WindowManager's regular grid-size restoration on the next launch,
+        // so preserve the native snapshot and release its expensive cells and caches instead.
+        if SpotlightNativeDismissedContentPolicy.clearsNativeSnapshot(
+            usesEnhancedSiri: usesEnhancedSiriRuntime,
+        ) {
+            update(suggestions: [], applications: [])
+        }
+        purgeMemory()
     }
 
     private func scheduleDismissalCallback() {
@@ -4173,6 +4329,18 @@ enum LauncherStartupPolicy {
             return false
         }
         return !launchAtLoginEnabled
+    }
+}
+
+enum LauncherReopenPolicy {
+    static let backgroundLaunchSuppressionWindow: TimeInterval = 2
+
+    static func shouldInvokeLauncher(
+        arguments: [String],
+        elapsedSinceLaunch: TimeInterval,
+    ) -> Bool {
+        !(arguments.contains("--background") &&
+            elapsedSinceLaunch < backgroundLaunchSuppressionWindow)
     }
 }
 
@@ -4630,11 +4798,7 @@ private final class LauncherWindowController: NSObject, LauncherPresenting {
     private func releaseDismissedContent() {
         suggestionBundleIdentifiers.removeAll(keepingCapacity: false)
         filteredApplications.removeAll(keepingCapacity: false)
-        nativeUI.update(
-            suggestions: [],
-            applications: [],
-        )
-        nativeUI.purgeMemory()
+        nativeUI.releaseDismissedContent()
     }
 }
 
@@ -5348,6 +5512,7 @@ extension LauncherSettingsWindowController: NSTableViewDataSource, NSTableViewDe
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let launchUptime = ProcessInfo.processInfo.systemUptime
     private let recentApplicationStore = LauncherRecentApplicationStore()
     private let pinnedApplicationStore = LauncherPinnedApplicationStore()
     private let hiddenApplicationStore = LauncherHiddenApplicationStore()
@@ -5442,6 +5607,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
+        let elapsedSinceLaunch = ProcessInfo.processInfo.systemUptime - launchUptime
+        guard LauncherReopenPolicy.shouldInvokeLauncher(
+            arguments: CommandLine.arguments,
+            elapsedSinceLaunch: elapsedSinceLaunch,
+        ) else {
+            CornerlightTrace.lifecycle.notice(
+                "ignored launch-time reopen event for background startup",
+            )
+            return true
+        }
         invokeLauncher(kind: .explicit)
         return true
     }

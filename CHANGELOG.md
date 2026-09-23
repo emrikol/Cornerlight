@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-09-23
+
+- Preserve the Siri AI Beta launcher's native split-window snapshot across dismissal, preventing the application grid from reopening offset or at the compact fallback width.
+- Restore reliable repeated Hot Corner activation after either clicking away or leaving the corner, including recovery when WindowServer drops an exit event.
+- Ignore LaunchServices' immediate background-startup reopen event and preserve Spotlight's native delegate ownership, preventing startup and dismissal races from presenting a partially initialized launcher.
+
 ## [0.1.16] - 2026-09-22
 
 - Support both macOS 27 Spotlight and the Siri AI Beta launcher runtime, using each system runtime's native window and controller hierarchy.

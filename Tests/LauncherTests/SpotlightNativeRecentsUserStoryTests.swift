@@ -18,7 +18,7 @@ private typealias NativeSeparatorStyleGetter = @convention(c) (
 struct SpotlightNativeRecentsUserStoryTests {
     @Test @MainActor
     // swiftlint:disable:next function_body_length
-    func `recent apps and catalog share Spotlights scrolling results surface`() throws {
+    func `recent apps and catalog share Spotlights scrolling results surface`() async throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
         host.update(
@@ -150,6 +150,7 @@ struct SpotlightNativeRecentsUserStoryTests {
         collectionView.collectionViewLayout?.invalidateLayout()
         scrollingViewController.view.layoutSubtreeIfNeeded()
         if SpotlightExecutableRuntime.generation == .spotlightUIInternal {
+            await Task.yield()
             let scrollView = try #require(collectionView.enclosingScrollView)
             #expect(scrollView.scrollerInsets.top == 37)
             #expect(scrollView.scrollerInsets.bottom == 37)
