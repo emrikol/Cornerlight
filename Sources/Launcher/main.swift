@@ -2714,8 +2714,16 @@ final class SpotlightNativeLauncherUI {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: WindowManager entry points")
             return nil
         }
-        if usesEnhancedSiri,
-           !CornerlightSpotlightLaunchAppsBrowsing(managerPointer) {
+        if usesEnhancedSiri {
+            guard Self.switchNativeWindowManager(
+                managerPointer,
+                to: Self.presentationScreen(),
+            ) else {
+                CornerlightTrace.lifecycle.error("macOS 27 bridge failed: native screen selection")
+                return nil
+            }
+        }
+        if usesEnhancedSiri, !CornerlightSpotlightLaunchAppsBrowsing(managerPointer) {
             CornerlightTrace.lifecycle.error("macOS 27 Siri bridge failed: app browsing launch")
             return nil
         }
@@ -2997,8 +3005,12 @@ final class SpotlightNativeLauncherUI {
         scheduleTransitionRecovery(for: token, operation: "presentation")
         if let windowManager {
             let managerPointer = Unmanaged.passUnretained(windowManager).toOpaque()
-            guard usesEnhancedSiriRuntime || configureMacOS27AppsBrowsingFactory(),
-                  CornerlightSpotlightLaunchAppsBrowsing(managerPointer)
+            guard !usesEnhancedSiriRuntime || Self.switchNativeWindowManager(
+                managerPointer,
+                to: Self.presentationScreen(),
+            ),
+                usesEnhancedSiriRuntime || configureMacOS27AppsBrowsingFactory(),
+                CornerlightSpotlightLaunchAppsBrowsing(managerPointer)
             else {
                 CornerlightTrace.lifecycle.error(
                     "macOS 27 native apps-browsing presentation configuration failed",
@@ -3033,6 +3045,26 @@ final class SpotlightNativeLauncherUI {
             named: "configuration",
             on: factory,
             to: Self.macOS27AppsBrowsingResultsMode,
+        )
+    }
+
+    static func presentationScreen(
+        pointerLocation: NSPoint = NSEvent.mouseLocation,
+        screens: [NSScreen] = NSScreen.screens,
+    ) -> NSScreen? {
+        screens.first(where: { NSMouseInRect(pointerLocation, $0.frame, false) })
+            ?? NSScreen.main
+            ?? screens.first
+    }
+
+    private static func switchNativeWindowManager(
+        _ managerPointer: UnsafeMutableRawPointer,
+        to screen: NSScreen?,
+    ) -> Bool {
+        guard let screen else { return false }
+        return CornerlightSpotlightSwitchScreen(
+            managerPointer,
+            Unmanaged.passUnretained(screen).toOpaque(),
         )
     }
 
@@ -4502,10 +4534,15 @@ final class LauncherPresentationCoordinator {
     typealias Factory = @MainActor () -> any LauncherPresenting
 
     private let makeLauncher: Factory
+    private let recreatesLauncherAfterDisplayChanges: Bool
     private var launcher: (any LauncherPresenting)?
     private var rebuildsLauncherForDisplayConfiguration = false
 
-    init(makeLauncher: @escaping Factory) {
+    init(
+        recreatesLauncherAfterDisplayChanges: Bool = true,
+        makeLauncher: @escaping Factory,
+    ) {
+        self.recreatesLauncherAfterDisplayChanges = recreatesLauncherAfterDisplayChanges
         self.makeLauncher = makeLauncher
     }
 
@@ -4529,6 +4566,7 @@ final class LauncherPresentationCoordinator {
     }
 
     func displayConfigurationDidChange() {
+        guard recreatesLauncherAfterDisplayChanges else { return }
         rebuildsLauncherForDisplayConfiguration = launcher != nil
         discardStaleLauncherIfHidden()
     }
@@ -4568,6 +4606,14 @@ final class LauncherPresentationCoordinator {
         else { return }
         launcher = nil
         rebuildsLauncherForDisplayConfiguration = false
+    }
+}
+
+enum LauncherDisplayConfigurationPolicy {
+    static func recreatesNativeLauncher(usesEnhancedSiri: Bool) -> Bool {
+        // CampoActivationServer is process-wide and traps if a second Siri AppDelegate tries to
+        // activate it. Keep that ownership graph alive; its native windows handle display moves.
+        !usesEnhancedSiri
     }
 }
 
@@ -5524,7 +5570,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         updaterDelegate: nil,
         userDriverDelegate: nil,
     )
-    private lazy var launcherCoordinator = LauncherPresentationCoordinator { [self] in
+    private lazy var launcherCoordinator = LauncherPresentationCoordinator(
+        recreatesLauncherAfterDisplayChanges:
+        LauncherDisplayConfigurationPolicy.recreatesNativeLauncher(
+            usesEnhancedSiri: SpotlightExecutableRuntime.usesEnhancedSiri,
+        ),
+    ) { [self] in
         let launcher = LauncherWindowController(
             recentApplicationStore: recentApplicationStore,
             pinnedApplicationStore: pinnedApplicationStore,

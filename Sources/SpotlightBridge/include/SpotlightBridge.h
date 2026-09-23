@@ -5,6 +5,7 @@
 
 bool CornerlightSpotlightBootstrap(void *windowManager);
 bool CornerlightSpotlightUsesEnhancedSiri(void);
+bool CornerlightSpotlightSwitchScreen(void *windowManager, void *screen);
 bool CornerlightSpotlightLaunchAppsBrowsing(void *windowManager);
 bool CornerlightSpotlightDismissAll(void *windowManager);
 bool CornerlightSpotlightClearSearch(void *searchViewController);

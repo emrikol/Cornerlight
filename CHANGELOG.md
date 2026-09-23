@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-09-23
+
+- Preserve the Siri AI Beta launcher's process-wide activation owner across display changes, preventing a crash after docking, undocking, or entering clamshell mode.
+- Switch Spotlight's retained window manager to the display under the pointer before opening the launcher, restoring the full-size application drawer on multi-display setups.
+
 ## [0.1.17] - 2026-09-23
 
 - Preserve the Siri AI Beta launcher's native split-window snapshot across dismissal, preventing the application grid from reopening offset or at the compact fallback width.

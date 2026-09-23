@@ -7,6 +7,11 @@ typedef void __attribute__((swiftcall)) (*SwiftInstanceMethod)(
     void *self __attribute__((swift_context))
 );
 
+typedef void __attribute__((swiftcall)) (*SwiftScreenInstanceMethod)(
+    void *screen,
+    void *self __attribute__((swift_context))
+);
+
 typedef void __attribute__((swiftcall)) (*SwiftOptionalCompletionInstanceMethod)(
     void *completion,
     void *completionContext,
@@ -55,6 +60,21 @@ bool CornerlightSpotlightUsesEnhancedSiri(void) {
         );
     }
     return getter != NULL && getter();
+}
+
+bool CornerlightSpotlightSwitchScreen(void *windowManager, void *screen) {
+    static SwiftScreenInstanceMethod switchScreen;
+    if (switchScreen == NULL) {
+        switchScreen = (SwiftScreenInstanceMethod)dlsym(
+            RTLD_DEFAULT,
+            "$s19SpotlightUIInternal13WindowManagerC6switchyySo8NSScreenCFTj"
+        );
+    }
+    if (switchScreen == NULL || windowManager == NULL || screen == NULL) {
+        return false;
+    }
+    switchScreen(screen, windowManager);
+    return true;
 }
 
 bool CornerlightSpotlightLaunchAppsBrowsing(void *windowManager) {

@@ -96,6 +96,39 @@ struct LauncherPresentationUserStoryTests {
     }
 
     @Test @MainActor
+    func `enhanced Siri keeps its process-wide launcher owner after displays change`() {
+        var created: [PresenterSpy] = []
+        let coordinator = LauncherPresentationCoordinator(
+            recreatesLauncherAfterDisplayChanges:
+            LauncherDisplayConfigurationPolicy.recreatesNativeLauncher(
+                usesEnhancedSiri: true,
+            ),
+        ) {
+            let presenter = PresenterSpy()
+            created.append(presenter)
+            return presenter
+        }
+        coordinator.showLauncher()
+        created[0].reportNativeVisibility(false)
+
+        coordinator.displayConfigurationDidChange()
+
+        #expect(coordinator.hasLauncher)
+        coordinator.showLauncher()
+        #expect(created.count == 1)
+        #expect(created[0].isPresented)
+    }
+
+    @Test
+    func `regular Spotlight may rebuild its launcher after displays change`() {
+        #expect(
+            LauncherDisplayConfigurationPolicy.recreatesNativeLauncher(
+                usesEnhancedSiri: false,
+            ),
+        )
+    }
+
+    @Test @MainActor
     func `a visible launcher is rebuilt after it closes on a changed display`() {
         var created: [PresenterSpy] = []
         let coordinator = LauncherPresentationCoordinator {
