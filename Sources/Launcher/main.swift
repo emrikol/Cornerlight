@@ -3075,24 +3075,56 @@ final class SpotlightNativeLauncherUI {
     }
 
     private func applyMacOS27GridBrowseWindowBehavior() -> Bool {
-        guard !usesEnhancedSiriRuntime else { return true }
-        guard runtimeGeneration == .spotlightUIInternal,
-              let sizingCoordinator = Self.objectIvar(
-                  named: "sizingCoordinator",
-                  on: viewController,
-              ),
-              let windowSize = Self.objectIvar(
-                  named: "windowSize",
-                  on: sizingCoordinator,
-              )
-        else { return false }
+        guard runtimeGeneration == .spotlightUIInternal else { return false }
+        let windowSize: AnyObject? = if usesEnhancedSiriRuntime {
+            enhancedSiriResultsWindowSize()
+        } else {
+            Self.objectIvar(
+                named: "sizingCoordinator",
+                on: viewController,
+            ).flatMap {
+                Self.objectIvar(named: "windowSize", on: $0)
+            }
+        }
+        guard let windowSize else { return false }
         return CornerlightSpotlightApplyGridBrowseWindowBehavior(
             Unmanaged.passUnretained(windowSize).toOpaque(),
         )
     }
 
+    private func enhancedSiriResultsWindowSize() -> AnyObject? {
+        // Enhanced Siri gives the prompt and results separate sizing coordinators. Resizing the
+        // search controller changes the prompt; the grid belongs to the results-stack host.
+        guard let searchManager = Self.reflectedClassObject(
+            named: "searchManager",
+            on: viewController,
+        ),
+            let resultsHost = Self.reflectedClassObject(
+                named: "_resultsHost",
+                on: searchManager,
+            ),
+            let resultsStackController = Self.objectIvar(
+                named: "_controller",
+                on: resultsHost,
+            ),
+            NSStringFromClass(type(of: resultsStackController)).contains(
+                "SearchResultsStackViewController",
+            ),
+            let sizingCoordinator = Self.objectIvar(
+                named: "sizingCoordinator",
+                on: resultsStackController,
+            ),
+            let windowSize = Self.objectIvar(
+                named: "windowSize",
+                on: sizingCoordinator,
+            ),
+            NSStringFromClass(type(of: windowSize)) ==
+            "SpotlightUIInternal.ScopedWindowSize"
+        else { return nil }
+        return windowSize
+    }
+
     private func settleMacOS27GridBrowseWindowBehavior() {
-        guard !usesEnhancedSiriRuntime else { return }
         gridBrowseSizingWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, !applyMacOS27GridBrowseWindowBehavior() else { return }
@@ -4354,6 +4386,26 @@ final class SpotlightNativeLauncherUI {
               .load(as: UnsafeRawPointer?.self)
         else { return nil }
         return Unmanaged<AnyObject>.fromOpaque(rawValue).takeUnretainedValue()
+    }
+
+    private static func reflectedClassObject(named name: String, on value: Any) -> AnyObject? {
+        guard let child = Mirror(reflecting: value).children.first(where: { $0.label == name })
+        else { return nil }
+        return firstClassObject(in: child.value)
+    }
+
+    private static func firstClassObject(in value: Any, depth: Int = 0) -> AnyObject? {
+        let mirror = Mirror(reflecting: value)
+        if mirror.displayStyle == .class {
+            return value as AnyObject
+        }
+        guard depth < 8 else { return nil }
+        for child in mirror.children {
+            if let object = firstClassObject(in: child.value, depth: depth + 1) {
+                return object
+            }
+        }
+        return nil
     }
 
     private static func setByteIvar(

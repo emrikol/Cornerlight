@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-09-24
+
+- Restore the Enhanced Siri results grid to its native full-width browse size after docking, undocking, or switching displays without resizing the separate prompt window.
+
 ## [0.1.19] - 2026-09-23
 
 - Restore Spotlight's native first-result selection for partial application-name queries on macOS 27, so Return opens the best match without requiring the full name.
