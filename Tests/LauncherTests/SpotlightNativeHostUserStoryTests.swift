@@ -658,7 +658,7 @@ struct SpotlightNativeHostUserStoryTests {
     }
 
     @Test @MainActor
-    func `partial application query selects Spotlights best result for Return`() throws {
+    func `partial application query selects Spotlights best result for Return`() async throws {
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
         host.searchField.stringValue = "musi"
@@ -672,15 +672,10 @@ struct SpotlightNativeHostUserStoryTests {
             ],
         )
 
-        let deadline = Date(timeIntervalSinceNow: 1)
-        while host.retainedNativeCollectionView.selectionIndexPaths.isEmpty,
-              RunLoop.current.run(mode: .default, before: deadline) {}
-
-        #expect(
-            host.retainedNativeCollectionView.selectionIndexPaths == [
-                IndexPath(item: 0, section: 0),
-            ],
-        )
+        let expectedSelection: Set<IndexPath> = [IndexPath(item: 0, section: 0)]
+        #expect(await waitUntil {
+            host.retainedNativeCollectionView.selectionIndexPaths == expectedSelection
+        })
     }
 
     @MainActor
@@ -703,6 +698,19 @@ struct SpotlightNativeHostUserStoryTests {
                 continuation.resume()
             }
         }
+    }
+
+    @MainActor
+    private func waitUntil(_ condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return condition()
     }
 }
 
