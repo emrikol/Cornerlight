@@ -72,13 +72,15 @@ struct ApplicationCatalogRefreshTests {
 
     @MainActor
     private func waitUntil(_ condition: () -> Bool) async -> Bool {
-        for _ in 0 ..< 1000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if condition() {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
-        return false
+        return condition()
     }
 }
 
