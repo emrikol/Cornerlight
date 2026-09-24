@@ -33,7 +33,7 @@ zsh -n build.sh verify.sh hooks/* scripts/*.sh Tools/*.sh
 actionlint
 swiftformat --lint .
 swiftlint lint --strict
-swift test -Xswiftc -warnings-as-errors
+swift test --no-parallel -Xswiftc -warnings-as-errors
 Tools/test-build-workflow.sh
 Tools/test-appcast-workflow.sh
 Tools/test-release-workflow.sh
