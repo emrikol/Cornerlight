@@ -5,7 +5,7 @@
 ## [0.1.20] - 2026-09-24
 
 - Restore the Enhanced Siri results grid to its native full-width browse size after docking, undocking, or switching displays without resizing the separate prompt window.
-- Serialize Swift Testing execution so native Spotlight's process-wide runtime cannot wedge release verification.
+- Isolate Swift Testing cases so native Spotlight's process-wide runtime cannot wedge release verification.
 
 ## [0.1.19] - 2026-09-23
 

@@ -33,7 +33,13 @@ zsh -n build.sh verify.sh hooks/* scripts/*.sh Tools/*.sh
 actionlint
 swiftformat --lint .
 swiftlint lint --strict
-swift test --no-parallel -Xswiftc -warnings-as-errors
+# Spotlight's private runtime has process-wide singleton state. Give every Swift Testing case a
+# fresh process so one native host cannot contaminate the next case on headless CI runners.
+test_cases=("${(@f)$(swift test list -Xswiftc -warnings-as-errors)}")
+(( ${#test_cases[@]} > 0 )) || { print -u2 -- "No Swift tests discovered"; exit 1; }
+for test_case in "${test_cases[@]}"; do
+    swift test --skip-build --no-parallel --filter "$test_case"
+done
 Tools/test-build-workflow.sh
 Tools/test-appcast-workflow.sh
 Tools/test-release-workflow.sh
