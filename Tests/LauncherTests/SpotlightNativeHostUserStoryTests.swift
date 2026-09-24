@@ -659,6 +659,10 @@ struct SpotlightNativeHostUserStoryTests {
 
     @Test @MainActor
     func `partial application query selects Spotlights best result for Return`() async throws {
+        // macOS 26 already owns this behavior. Cornerlight restores it only for the macOS 27
+        // results controller, whose native selection state is unavailable on older runners.
+        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 else { return }
+
         _ = NSApplication.shared
         let host = try #require(SpotlightNativeLauncherUI())
         host.searchField.stringValue = "musi"
