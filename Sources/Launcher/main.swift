@@ -2350,6 +2350,7 @@ final class SpotlightNativeLauncherUI {
     ) -> Unmanaged<AnyObject>?
     private typealias BoolSetter = @convention(c) (AnyObject, Selector, Bool) -> Void
     private typealias BoolGetter = @convention(c) (AnyObject, Selector) -> Bool
+    private typealias VoidAction = @convention(c) (AnyObject, Selector) -> Void
     private typealias SnapshotBuilder = @convention(c) (
         AnyObject,
         Selector,
@@ -3072,6 +3073,23 @@ final class SpotlightNativeLauncherUI {
             managerPointer,
             Unmanaged.passUnretained(screen).toOpaque(),
         )
+    }
+
+    func displayConfigurationDidChange() {
+        guard runtimeGeneration == .spotlightUIInternal,
+              let windowManager
+        else { return }
+        let selector = NSSelectorFromString("screenConfigurationChanged")
+        guard windowManager.responds(to: selector) else {
+            CornerlightTrace.lifecycle.error(
+                "macOS 27 native display-configuration refresh unavailable",
+            )
+            return
+        }
+        unsafeBitCast(
+            windowManager.method(for: selector),
+            to: VoidAction.self,
+        )(windowManager, selector)
     }
 
     private func applyMacOS27GridBrowseWindowBehavior() -> Bool {
@@ -4616,6 +4634,7 @@ protocol LauncherPresenting: AnyObject {
     func dismiss()
     func dismiss(reason: Int, completion: (() -> Void)?)
     func applicationLostFocus()
+    func displayConfigurationDidChange()
 }
 
 @MainActor
@@ -4655,7 +4674,10 @@ final class LauncherPresentationCoordinator {
     }
 
     func displayConfigurationDidChange() {
-        guard recreatesLauncherAfterDisplayChanges else { return }
+        guard recreatesLauncherAfterDisplayChanges else {
+            launcher?.displayConfigurationDidChange()
+            return
+        }
         rebuildsLauncherForDisplayConfiguration = launcher != nil
         discardStaleLauncherIfHidden()
     }
@@ -4800,6 +4822,10 @@ private final class LauncherWindowController: NSObject, LauncherPresenting {
     func applicationLostFocus() {
         CornerlightTrace.lifecycle.notice("native Spotlight app-delegate focus loss")
         nativeUI.applicationLostFocus()
+    }
+
+    func displayConfigurationDidChange() {
+        nativeUI.displayConfigurationDidChange()
     }
 
     func writeSnapshot(to url: URL) throws {

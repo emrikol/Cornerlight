@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-09-25
+
+- Refresh Enhanced Siri's retained native window manager when the display configuration changes, so the application grid adopts the correct dimensions after docking or undocking.
+
 ## [0.1.20] - 2026-09-24
 
 - Restore the Enhanced Siri results grid to its native full-width browse size after docking, undocking, or switching displays without resizing the separate prompt window.

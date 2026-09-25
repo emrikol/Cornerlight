@@ -63,6 +63,11 @@ struct SpotlightNativeHostUserStoryTests {
                     ? "CampoUIInternal.MacWindowManager"
                     : "SpotlightUIInternal.WindowManager"))
             #expect(manager.responds(to: NSSelectorFromString("spotlightIsVisible")))
+            #expect(
+                manager.responds(
+                    to: NSSelectorFromString("screenConfigurationChanged"),
+                ),
+            )
             if usesEnhancedSiri {
                 let menuItem = try #require(
                     nativeObjectIvar(named: "spotlightMenuItem", on: host.appDelegate),
@@ -93,6 +98,7 @@ struct SpotlightNativeHostUserStoryTests {
                     in: host.viewController.view,
                 ) == nil,
             )
+            host.displayConfigurationDidChange()
             #expect(!host.isPresented)
             return
         }

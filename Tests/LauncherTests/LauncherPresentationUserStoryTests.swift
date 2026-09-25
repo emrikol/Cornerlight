@@ -96,7 +96,7 @@ struct LauncherPresentationUserStoryTests {
     }
 
     @Test @MainActor
-    func `enhanced Siri keeps its process-wide launcher owner after displays change`() {
+    func `enhanced Siri refreshes its retained launcher after displays change`() {
         var created: [PresenterSpy] = []
         let coordinator = LauncherPresentationCoordinator(
             recreatesLauncherAfterDisplayChanges:
@@ -114,6 +114,7 @@ struct LauncherPresentationUserStoryTests {
         coordinator.displayConfigurationDidChange()
 
         #expect(coordinator.hasLauncher)
+        #expect(created[0].displayConfigurationChangeCount == 1)
         coordinator.showLauncher()
         #expect(created.count == 1)
         #expect(created[0].isPresented)
@@ -222,6 +223,7 @@ struct LauncherPresentationUserStoryTests {
         private(set) var reasonedDismissCount = 0
         private(set) var lastDismissReason: Int?
         private(set) var lostFocusCount = 0
+        private(set) var displayConfigurationChangeCount = 0
         private var reasonedDismissCompletion: (() -> Void)?
         private let record: (String) -> Void
 
@@ -243,6 +245,10 @@ struct LauncherPresentationUserStoryTests {
 
         func applicationLostFocus() {
             lostFocusCount += 1
+        }
+
+        func displayConfigurationDidChange() {
+            displayConfigurationChangeCount += 1
         }
 
         func dismiss() {
