@@ -94,10 +94,15 @@ enum ApplicationCatalog {
 
         for root in roots {
             guard !isCancelled() else { return [] }
+            // Do not pass `.skipsHiddenFiles`. macOS relocates some system apps
+            // (Safari) into a sealed cryptex and surfaces them through an
+            // `/Applications` symlink that carries the UF_HIDDEN flag, which that
+            // option would drop. We exclude dot-prefixed bundles by name instead,
+            // so hidden helper bundles stay out while flagged system apps stay in.
             guard let enumerator = fileManager.enumerator(
                 at: root,
                 includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                options: [.skipsPackageDescendants],
             ) else { continue }
 
             for case let url as URL in enumerator {
@@ -107,21 +112,9 @@ enum ApplicationCatalog {
                 }
 
                 enumerator.skipDescendants()
-                let path = url.standardizedFileURL.path
-                guard seenPaths.insert(path).inserted else { continue }
-
-                var name = fileManager.displayName(atPath: path)
-                if name.lowercased().hasSuffix(".app") {
-                    name.removeLast(4)
+                if let record = record(for: url, fileManager: fileManager, seenPaths: &seenPaths) {
+                    applications.append(record)
                 }
-                guard !name.isEmpty else { continue }
-                applications.append(
-                    ApplicationRecord(
-                        name: name,
-                        url: url,
-                        bundleIdentifier: bundleIdentifier(for: url),
-                    ),
-                )
             }
         }
 
@@ -154,6 +147,31 @@ enum ApplicationCatalog {
             return $0.0.name.localizedStandardCompare($1.0.name) == .orderedAscending
         }
         .map(\.0)
+    }
+
+    /// Builds a catalog record for one `.app` URL, or returns nil when the bundle
+    /// is dot-hidden, already seen, or has no display name. Dot-prefixed bundles are
+    /// excluded here rather than through `.skipsHiddenFiles`, which would also drop
+    /// the UF_HIDDEN symlink macOS uses for Safari.
+    private static func record(
+        for url: URL,
+        fileManager: FileManager,
+        seenPaths: inout Set<String>,
+    ) -> ApplicationRecord? {
+        guard !url.lastPathComponent.hasPrefix(".") else { return nil }
+        let path = url.standardizedFileURL.path
+        guard seenPaths.insert(path).inserted else { return nil }
+
+        var name = fileManager.displayName(atPath: path)
+        if name.lowercased().hasSuffix(".app") {
+            name.removeLast(4)
+        }
+        guard !name.isEmpty else { return nil }
+        return ApplicationRecord(
+            name: name,
+            url: url,
+            bundleIdentifier: bundleIdentifier(for: url),
+        )
     }
 
     private static func bundleIdentifier(for applicationURL: URL) -> String? {

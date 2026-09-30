@@ -76,6 +76,25 @@ struct ApplicationCatalogTests {
     }
 
     @Test
+    func `bundles with the hidden file flag are still discovered`() throws {
+        // macOS surfaces Safari through an /Applications symlink that carries the
+        // UF_HIDDEN flag. The scan must include such bundles, unlike Spotlight's
+        // indexed list, which the launcher replaces.
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var flagged = root.appending(path: "Safari.app", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: flagged, withIntermediateDirectories: true)
+        try flagged.setResourceValues({
+            var values = URLResourceValues()
+            values.isHidden = true
+            return values
+        }())
+
+        #expect(ApplicationCatalog.scan(roots: [root]).map(\.name) == ["Safari"])
+    }
+
+    @Test
     func `the launcher includes Cornerlight in its complete inventory`() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

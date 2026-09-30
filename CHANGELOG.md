@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-09-30
+
+- List Apple system applications that macOS surfaces through hidden `/Applications` symlinks, such as Safari, so the launcher shows them like Spotlight does.
+
 ## [0.1.21] - 2026-09-25
 
 - Refresh Enhanced Siri's retained native window manager when the display configuration changes, so the application grid adopts the correct dimensions after docking or undocking.
