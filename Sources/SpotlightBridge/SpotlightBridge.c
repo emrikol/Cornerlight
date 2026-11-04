@@ -1,7 +1,9 @@
 #include "SpotlightBridge.h"
 
 #include <dlfcn.h>
+#include <string.h>
 #include <stddef.h>
+#include <sys/sysctl.h>
 
 typedef void __attribute__((swiftcall)) (*SwiftInstanceMethod)(
     void *self __attribute__((swift_context))
@@ -148,5 +150,77 @@ bool CornerlightSpotlightApplyGridBrowseWindowBehavior(void *windowSize) {
         hasGridBrowseBehavior = true;
     }
     invalidate(gridBrowseBehavior, false, true, NULL, NULL, windowSize);
+    return true;
+}
+
+typedef void __attribute__((swiftcall)) (*SwiftAnimatedSizeSetter)(
+    double value,
+    void *self __attribute__((swift_context))
+);
+
+/*
+ * macOS 27.2's Siri island draws its results accessory from WindowAnimationCoordinator's
+ * animated width and height. Nothing copies the immediate size into them when the results are
+ * supplied directly instead of through Spotlight's query pipeline, so the accessory stays a
+ * 113 x 40 pill. The setters have no exported symbols and no Objective-C entry points. Reach them
+ * relative to the exported launchAppsBrowsing symbol in the same image, only on builds whose
+ * offsets were measured, and only after the target's opening instructions match.
+ */
+static const struct {
+    const char *build;
+    long widthSetterOffset;
+    long heightSetterOffset;
+} supportedAnimatedSizeBuilds[] = {
+    {"26B123", -0x1181f0, -0x118328},
+};
+
+static bool animatedSizeSetterLooksValid(const unsigned int *code) {
+    /* ldr x8, [x20] followed by an adrp. */
+    return code[0] == 0xf9400288u && (code[1] & 0x9f000000u) == 0x90000000u;
+}
+
+bool CornerlightSpotlightSyncAnimatedWindowSize(
+    void *animationCoordinator,
+    double width,
+    double height
+) {
+    static bool resolved;
+    static SwiftAnimatedSizeSetter setWidth;
+    static SwiftAnimatedSizeSetter setHeight;
+
+    if (animationCoordinator == NULL) {
+        return false;
+    }
+    if (!resolved) {
+        resolved = true;
+        char build[32] = {0};
+        size_t length = sizeof build;
+        void *anchor = dlsym(
+            RTLD_DEFAULT,
+            "$s19SpotlightUIInternal13WindowManagerC18launchAppsBrowsing10completionyyycSg_tF"
+        );
+        if (anchor == NULL || sysctlbyname("kern.osversion", build, &length, NULL, 0) != 0) {
+            return false;
+        }
+        for (size_t index = 0;
+             index < sizeof supportedAnimatedSizeBuilds / sizeof supportedAnimatedSizeBuilds[0];
+             index++) {
+            if (strcmp(build, supportedAnimatedSizeBuilds[index].build) != 0) {
+                continue;
+            }
+            const char *widthTarget = (const char *)anchor + supportedAnimatedSizeBuilds[index].widthSetterOffset;
+            const char *heightTarget = (const char *)anchor + supportedAnimatedSizeBuilds[index].heightSetterOffset;
+            if (animatedSizeSetterLooksValid((const unsigned int *)widthTarget) &&
+                animatedSizeSetterLooksValid((const unsigned int *)heightTarget)) {
+                setWidth = (SwiftAnimatedSizeSetter)widthTarget;
+                setHeight = (SwiftAnimatedSizeSetter)heightTarget;
+            }
+        }
+    }
+    if (setWidth == NULL || setHeight == NULL) {
+        return false;
+    }
+    setWidth(width, animationCoordinator);
+    setHeight(height, animationCoordinator);
     return true;
 }

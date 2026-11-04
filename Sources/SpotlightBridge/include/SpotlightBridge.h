@@ -10,5 +10,6 @@ bool CornerlightSpotlightLaunchAppsBrowsing(void *windowManager);
 bool CornerlightSpotlightDismissAll(void *windowManager);
 bool CornerlightSpotlightClearSearch(void *searchViewController);
 bool CornerlightSpotlightApplyGridBrowseWindowBehavior(void *windowSize);
+bool CornerlightSpotlightSyncAnimatedWindowSize(void *animationCoordinator, double width, double height);
 
 #endif

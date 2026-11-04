@@ -1472,12 +1472,13 @@ private enum SpotlightNativeIndexingStatusHook {
 
     private static var originalImplementation: IMP?
 
-    static func install(on indexingView: AnyObject) -> Bool {
+    /// The hook replaces a class method, so an existing instance is optional. macOS 27.2 creates the
+    /// indexing view lazily, outside the navigation bar.
+    static func install(on indexingView: AnyObject?) -> Bool {
         let indexingViewClass: AnyClass? = NSClassFromString("SPUISpotlightIndexingView") ??
             NSClassFromString("SPSpotlightIndexingView")
         guard let indexingViewClass,
-              let object = indexingView as? NSObject,
-              object.isKind(of: indexingViewClass),
+              indexingView == nil || (indexingView as? NSObject)?.isKind(of: indexingViewClass) == true,
               let method = class_getInstanceMethod(
                   indexingViewClass,
                   NSSelectorFromString("setEligibleToView:"),
@@ -1505,11 +1506,13 @@ private enum SpotlightNativeIndexingStatusHook {
         }
 
         guard let originalImplementation else { return false }
-        unsafeBitCast(originalImplementation, to: EligibilitySetter.self)(
-            indexingView,
-            NSSelectorFromString("setEligibleToView:"),
-            false,
-        )
+        if let indexingView {
+            unsafeBitCast(originalImplementation, to: EligibilitySetter.self)(
+                indexingView,
+                NSSelectorFromString("setEligibleToView:"),
+                false,
+            )
+        }
         return true
     }
 }
@@ -2343,6 +2346,8 @@ final class SpotlightNativeLauncherUI {
     private static let macOS27AppsBrowsingResultsMode: UInt8 = 2
     private static let macOS27ControllerRetryDelay: TimeInterval = 0.01
     private static let macOS27ControllerRetryLimit = 100
+    private static let macOS27HiddenResultsGraceAttempts = 25
+    private static let macOS27HiddenResultsRevealDelays: [TimeInterval] = [0.2, 0.45]
     private static let macOS27GridBrowseSettlementDelay: TimeInterval = 0.075
     private static let enhancedSiriDismissalSettlementDelay: TimeInterval = 0.25
 
@@ -2425,7 +2430,8 @@ final class SpotlightNativeLauncherUI {
     private var topHitResultsController: AnyObject
     private var resultsController: AnyObject
     private let menuItem: AnyObject
-    private let sessionAnalytics: AnyObject
+    // Absent on macOS 27.2 and later, where WindowManager no longer owns session analytics.
+    private let sessionAnalytics: AnyObject?
     private let windowManager: AnyObject?
     private let runtimeGeneration: SpotlightExecutableRuntime.Generation
     private let usesEnhancedSiriRuntime: Bool
@@ -2713,12 +2719,12 @@ final class SpotlightNativeLauncherUI {
             let menuItem = Self.objectIvar(
                 named: usesEnhancedSiri ? "spotlightMenuItem" : "menuItem",
                 on: appDelegate,
-            ),
-            let sessionAnalytics = Self.objectIvar(named: "sessionAnalytics", on: manager)
+            )
         else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: ownership graph")
             return nil
         }
+        let sessionAnalytics = Self.objectIvar(named: "sessionAnalytics", on: manager)
 
         let managerPointer = Unmanaged.passUnretained(manager).toOpaque()
         guard SpotlightNativeEventCollectorQueueRepair.ensureQueue(on: menuItem) else {
@@ -2810,15 +2816,7 @@ final class SpotlightNativeLauncherUI {
                   of: NSCollectionView.self,
                   in: topHitViewController.view,
               ),
-              NSStringFromClass(type(of: topHitCollectionView)) == "SearchUICollectionView",
-              let navigationBar = Self.firstDescendant(
-                  named: "SpotlightUIInternal.SearchNavigationBar",
-                  in: initialized.view,
-              ),
-              let indexingStatusView = Self.firstDescendant(
-                  named: "SPUISpotlightIndexingView",
-                  in: navigationBar,
-              )
+              NSStringFromClass(type(of: topHitCollectionView)) == "SearchUICollectionView"
         else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: controller surface")
             _ = CornerlightSpotlightDismissAll(managerPointer)
@@ -2826,6 +2824,11 @@ final class SpotlightNativeLauncherUI {
             panel.alphaValue = originalAlphaValue
             return nil
         }
+
+        let indexingStatusView = Self.firstDescendant(
+            named: "SPUISpotlightIndexingView",
+            in: nativeRoot,
+        )
 
         self.panel = panel
         self.appDelegate = appDelegate
@@ -3163,7 +3166,9 @@ final class SpotlightNativeLauncherUI {
     private func settleMacOS27GridBrowseWindowBehavior() {
         gridBrowseSizingWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self, !applyMacOS27GridBrowseWindowBehavior() else { return }
+            guard let self else { return }
+            syncIslandAccessoryAnimatedSize()
+            guard !applyMacOS27GridBrowseWindowBehavior() else { return }
             CornerlightTrace.lifecycle.error(
                 "macOS 27 native grid-browse sizing restore failed",
             )
@@ -3183,10 +3188,16 @@ final class SpotlightNativeLauncherUI {
         guard transitionGate.isCurrent(token) else { return }
         let hasAdoptedController = hasAdoptedController || refreshMacOS27LiveCollectionView()
         if hasAdoptedController,
+           attemptsRemaining <= Self.macOS27ControllerRetryLimit - Self.macOS27HiddenResultsGraceAttempts {
+            revealHiddenAppsBrowsingController()
+        }
+        if hasAdoptedController,
            isMacOS27AppsBrowsingControllerVisible(),
            applyMacOS27GridBrowseWindowBehavior() {
             lifecycleLease.completeNativeInvocation(token)
             nativeTransitionDidComplete(token)
+            syncIslandAccessoryAnimatedSize()
+            scheduleHiddenResultsReveal()
             return
         }
         guard attemptsRemaining > 0 else {
@@ -3210,6 +3221,51 @@ final class SpotlightNativeLauncherUI {
                 attemptsRemaining: attemptsRemaining - 1,
                 hasAdoptedController: hasAdoptedController,
             )
+        }
+    }
+
+    /// macOS 27.2's Siri island sizes its results accessory from the animation coordinator's animated
+    /// width and height. Spotlight's query pipeline normally brings them up to the immediate size.
+    /// Cornerlight supplies results directly, so copy the immediate size across itself.
+    private func syncIslandAccessoryAnimatedSize() {
+        guard usesEnhancedSiriRuntime,
+              let coordinator = Self.objectIvar(named: "assistantIslandCoordinator", on: appDelegate),
+              let model = Self.objectIvar(named: "_sessionModel", on: coordinator),
+              let sizing = Self.objectIvar(named: "accessorySizingCoordinator", on: model),
+              let animation = Self.objectIvar(named: "animationCoordinator", on: sizing),
+              let widthIvar = class_getInstanceVariable(type(of: animation), "_immediateWindowWidth"),
+              let heightIvar = class_getInstanceVariable(type(of: animation), "_immediateWindowHeight")
+        else { return }
+        let base = Unmanaged.passUnretained(animation).toOpaque()
+        let width = base.advanced(by: ivar_getOffset(widthIvar)).load(as: Double.self)
+        let height = base.advanced(by: ivar_getOffset(heightIvar)).load(as: Double.self)
+        guard width > 1, height > 1 else { return }
+        if !CornerlightSpotlightSyncAnimatedWindowSize(base, width, height) {
+            CornerlightTrace.lifecycle.error("island accessory animated size sync unavailable")
+        }
+    }
+
+    /// macOS 27.2 hides the results container shortly after it appears and only reveals it again when
+    /// results arrive through Spotlight's own query pipeline. Cornerlight supplies its results
+    /// directly, so reveal the container once Spotlight's own hiding has settled.
+    private func revealHiddenAppsBrowsingController() {
+        let root = panel.contentView ?? viewController.view
+        guard let pageController = Self.firstAppsBrowsingPageController(in: root),
+              let selectedController = pageController.selectedViewController,
+              NSStringFromClass(type(of: selectedController)).contains("SandwichViewController"),
+              selectedController.view.isHidden
+        else { return }
+        selectedController.view.isHidden = false
+    }
+
+    /// Spotlight's own hiding can land just after the presentation check passes, so look again
+    /// shortly afterward while the panel is still on screen.
+    private func scheduleHiddenResultsReveal() {
+        for delay in Self.macOS27HiddenResultsRevealDelays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, panel.isVisible else { return }
+                revealHiddenAppsBrowsingController()
+            }
         }
     }
 
