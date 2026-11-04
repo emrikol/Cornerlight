@@ -1368,8 +1368,8 @@ enum SpotlightExecutableRuntime {
         guard isLoaded,
               let applicationClass = NSClassFromString("SPApplication"),
               let application = (applicationClass as AnyObject)
-              .perform(NSSelectorFromString("sharedApplication"))?
-              .takeUnretainedValue() as? NSApplication,
+                  .perform(NSSelectorFromString("sharedApplication"))?
+                  .takeUnretainedValue() as? NSApplication,
               NSStringFromClass(type(of: application)) == "SPApplication"
         else {
             requiresCompatibilityRecovery = true
@@ -2490,9 +2490,9 @@ final class SpotlightNativeLauncherUI {
             .perform(NSSelectorFromString("alloc"))?
             .takeUnretainedValue(),
             let menuItem = allocatedMenuItem
-            .perform(NSSelectorFromString("init"))?
-            .takeRetainedValue(),
-            SpotlightNativeEventCollectorQueueRepair.ensureQueue(on: menuItem)
+                .perform(NSSelectorFromString("init"))?
+                .takeRetainedValue(),
+              SpotlightNativeEventCollectorQueueRepair.ensureQueue(on: menuItem)
         else { return nil }
 
         let statusItem = NSStatusBar.system.statusItem(withLength: 0)
@@ -2503,9 +2503,9 @@ final class SpotlightNativeLauncherUI {
             .perform(NSSelectorFromString("alloc"))?
             .takeUnretainedValue(),
             let appDelegateObject = allocatedAppDelegate
-            .perform(NSSelectorFromString("init"))?
-            .takeRetainedValue(),
-            let appDelegate = appDelegateObject as? NSObject
+                .perform(NSSelectorFromString("init"))?
+                .takeRetainedValue(),
+              let appDelegate = appDelegateObject as? NSObject
         else {
             NSStatusBar.system.removeStatusItem(statusItem)
             return nil
@@ -2518,8 +2518,8 @@ final class SpotlightNativeLauncherUI {
             .perform(NSSelectorFromString("alloc"))?
             .takeUnretainedValue(),
             let sessionAnalytics = allocatedSessionAnalytics
-            .perform(NSSelectorFromString("init"))?
-            .takeRetainedValue()
+                .perform(NSSelectorFromString("init"))?
+                .takeRetainedValue()
         else {
             NSStatusBar.system.removeStatusItem(statusItem)
             return nil
@@ -2538,20 +2538,20 @@ final class SpotlightNativeLauncherUI {
             to: MainWindowInitializer.self,
         )
         guard let mainWindowController = initializeMainWindow(
-            allocatedMainWindowController,
-            mainInitializerSelector,
-            nil,
-            appDelegate,
-            sessionAnalytics,
-        )?.takeRetainedValue(),
-            let panel = mainWindowController
-            .perform(NSSelectorFromString("spotlightPanel"))?
-            .takeUnretainedValue() as? NSPanel,
-            let initialized = mainWindowController
-            .perform(NSSelectorFromString("searchViewController"))?
-            .takeUnretainedValue() as? NSViewController,
-            NSStringFromClass(type(of: initialized)) ==
-            "SpotlightAppMacOS.SearchViewController"
+                  allocatedMainWindowController,
+                  mainInitializerSelector,
+                  nil,
+                  appDelegate,
+                  sessionAnalytics,
+              )?.takeRetainedValue(),
+              let panel = mainWindowController
+                  .perform(NSSelectorFromString("spotlightPanel"))?
+                  .takeUnretainedValue() as? NSPanel,
+              let initialized = mainWindowController
+                  .perform(NSSelectorFromString("searchViewController"))?
+                  .takeUnretainedValue() as? NSViewController,
+              NSStringFromClass(type(of: initialized)) ==
+              "SpotlightAppMacOS.SearchViewController"
         else {
             NSStatusBar.system.removeStatusItem(statusItem)
             return nil
@@ -2571,43 +2571,35 @@ final class SpotlightNativeLauncherUI {
                 of: NSCollectionView.self,
                 in: initialized.view,
             ),
-            NSStringFromClass(type(of: collectionView)) == "SearchUICollectionView"
-        else {
-            NSStatusBar.system.removeStatusItem(statusItem)
-            return nil
-        }
-        guard let navigationControllers = initialized
-            .perform(NSSelectorFromString("viewControllers"))?
-            .takeUnretainedValue() as? NSArray,
-            let sandwichController = navigationControllers.firstObject as AnyObject?,
-            let topHitResultsController = Self.objectIvar(
-                named: "topHitViewController",
-                on: sandwichController,
-            ),
-            NSStringFromClass(type(of: topHitResultsController)) ==
-            "SpotlightAppMacOS.SearchResultsAboveFiltersViewController",
-            let topHitViewController = topHitResultsController as? NSViewController,
-            let topHitCollectionView = Self.firstDescendant(
-                of: NSCollectionView.self,
-                in: topHitViewController.view,
-            ),
-            NSStringFromClass(type(of: topHitCollectionView)) == "SearchUICollectionView"
-        else {
-            NSStatusBar.system.removeStatusItem(statusItem)
-            return nil
-        }
-        guard let navigationBar = Self.objectIvar(
-            named: "navigationBar",
-            on: initialized,
-        ),
-            NSStringFromClass(type(of: navigationBar)) ==
-            "SpotlightAppMacOS.SearchNavigationBar",
-            let indexingStatusView = Self.objectIvar(
-                named: "indexingView",
-                on: navigationBar,
-            ),
-            NSStringFromClass(type(of: indexingStatusView)) ==
-            "SPSpotlightIndexingView"
+            NSStringFromClass(type(of: collectionView)) == "SearchUICollectionView",
+            let navigationControllers = initialized
+                .perform(NSSelectorFromString("viewControllers"))?
+                .takeUnretainedValue() as? NSArray,
+              let sandwichController = navigationControllers.firstObject as AnyObject?,
+              let topHitResultsController = Self.objectIvar(
+                  named: "topHitViewController",
+                  on: sandwichController,
+              ),
+              NSStringFromClass(type(of: topHitResultsController)) ==
+              "SpotlightAppMacOS.SearchResultsAboveFiltersViewController",
+              let topHitViewController = topHitResultsController as? NSViewController,
+              let topHitCollectionView = Self.firstDescendant(
+                  of: NSCollectionView.self,
+                  in: topHitViewController.view,
+              ),
+              NSStringFromClass(type(of: topHitCollectionView)) == "SearchUICollectionView",
+              let navigationBar = Self.objectIvar(
+                  named: "navigationBar",
+                  on: initialized,
+              ),
+              NSStringFromClass(type(of: navigationBar)) ==
+              "SpotlightAppMacOS.SearchNavigationBar",
+              let indexingStatusView = Self.objectIvar(
+                  named: "indexingView",
+                  on: navigationBar,
+              ),
+              NSStringFromClass(type(of: indexingStatusView)) ==
+              "SPSpotlightIndexingView"
         else {
             NSStatusBar.system.removeStatusItem(statusItem)
             return nil
@@ -2707,19 +2699,19 @@ final class SpotlightNativeLauncherUI {
             .perform(NSSelectorFromString("alloc"))?
             .takeUnretainedValue(),
             let appDelegateObject = allocatedAppDelegate
-            .perform(NSSelectorFromString("init"))?
-            .takeRetainedValue(),
-            let appDelegate = appDelegateObject as? NSObject,
-            let manager = Self.objectIvar(
-                named: usesEnhancedSiri
-                    ? "$__lazy_storage_$_windowManager"
-                    : "windowManager",
-                on: appDelegate,
-            ),
-            let menuItem = Self.objectIvar(
-                named: usesEnhancedSiri ? "spotlightMenuItem" : "menuItem",
-                on: appDelegate,
-            )
+                .perform(NSSelectorFromString("init"))?
+                .takeRetainedValue(),
+              let appDelegate = appDelegateObject as? NSObject,
+              let manager = Self.objectIvar(
+                  named: usesEnhancedSiri
+                      ? "$__lazy_storage_$_windowManager"
+                      : "windowManager",
+                  on: appDelegate,
+              ),
+              let menuItem = Self.objectIvar(
+                  named: usesEnhancedSiri ? "spotlightMenuItem" : "menuItem",
+                  on: appDelegate,
+              )
         else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: ownership graph")
             return nil
@@ -2760,12 +2752,13 @@ final class SpotlightNativeLauncherUI {
         }
 
         guard let panel = NSApp.windows.reversed().first(where: {
-            guard !existingWindows.contains(ObjectIdentifier($0)) else { return false }
-            guard let controller = $0.windowController else { return false }
-            return NSStringFromClass(type(of: controller)) ==
-                "SpotlightUIInternal.MainWindowController"
-        }) as? NSPanel,
-            let mainWindowController = panel.windowController
+                  guard !existingWindows.contains(ObjectIdentifier($0)),
+                        let controller = $0.windowController
+                  else { return false }
+                  return NSStringFromClass(type(of: controller)) ==
+                      "SpotlightUIInternal.MainWindowController"
+              }) as? NSPanel,
+              let mainWindowController = panel.windowController
         else {
             CornerlightTrace.lifecycle.error("macOS 27 bridge failed: native panel")
             _ = CornerlightSpotlightDismissAll(managerPointer)
@@ -3034,11 +3027,11 @@ final class SpotlightNativeLauncherUI {
         if let windowManager {
             let managerPointer = Unmanaged.passUnretained(windowManager).toOpaque()
             guard !usesEnhancedSiriRuntime || Self.switchNativeWindowManager(
-                managerPointer,
-                to: Self.presentationScreen(),
-            ),
-                usesEnhancedSiriRuntime || configureMacOS27AppsBrowsingFactory(),
-                CornerlightSpotlightLaunchAppsBrowsing(managerPointer)
+                      managerPointer,
+                      to: Self.presentationScreen(),
+                  ),
+                  usesEnhancedSiriRuntime || configureMacOS27AppsBrowsingFactory(),
+                  CornerlightSpotlightLaunchAppsBrowsing(managerPointer)
             else {
                 CornerlightTrace.lifecycle.error(
                     "macOS 27 native apps-browsing presentation configuration failed",
@@ -3135,30 +3128,30 @@ final class SpotlightNativeLauncherUI {
         // Enhanced Siri gives the prompt and results separate sizing coordinators. Resizing the
         // search controller changes the prompt; the grid belongs to the results-stack host.
         guard let searchManager = Self.reflectedClassObject(
-            named: "searchManager",
-            on: viewController,
-        ),
-            let resultsHost = Self.reflectedClassObject(
-                named: "_resultsHost",
-                on: searchManager,
-            ),
-            let resultsStackController = Self.objectIvar(
-                named: "_controller",
-                on: resultsHost,
-            ),
-            NSStringFromClass(type(of: resultsStackController)).contains(
-                "SearchResultsStackViewController",
-            ),
-            let sizingCoordinator = Self.objectIvar(
-                named: "sizingCoordinator",
-                on: resultsStackController,
-            ),
-            let windowSize = Self.objectIvar(
-                named: "windowSize",
-                on: sizingCoordinator,
-            ),
-            NSStringFromClass(type(of: windowSize)) ==
-            "SpotlightUIInternal.ScopedWindowSize"
+                  named: "searchManager",
+                  on: viewController,
+              ),
+              let resultsHost = Self.reflectedClassObject(
+                  named: "_resultsHost",
+                  on: searchManager,
+              ),
+              let resultsStackController = Self.objectIvar(
+                  named: "_controller",
+                  on: resultsHost,
+              ),
+              NSStringFromClass(type(of: resultsStackController)).contains(
+                  "SearchResultsStackViewController",
+              ),
+              let sizingCoordinator = Self.objectIvar(
+                  named: "sizingCoordinator",
+                  on: resultsStackController,
+              ),
+              let windowSize = Self.objectIvar(
+                  named: "windowSize",
+                  on: sizingCoordinator,
+              ),
+              NSStringFromClass(type(of: windowSize)) ==
+              "SpotlightUIInternal.ScopedWindowSize"
         else { return nil }
         return windowSize
     }
@@ -3309,11 +3302,7 @@ final class SpotlightNativeLauncherUI {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self else {
-                    completion()
-                    return
-                }
-                guard transitionGate.isCurrent(token) else {
+                guard let self, transitionGate.isCurrent(token) else {
                     completion()
                     return
                 }
@@ -3489,8 +3478,8 @@ final class SpotlightNativeLauncherUI {
         guard !snapshotQuery.isEmpty,
               searchField.stringValue == snapshotQuery,
               let collectionController = collectionView
-              .perform(NSSelectorFromString("controller"))?
-              .takeUnretainedValue()
+                  .perform(NSSelectorFromString("controller"))?
+                  .takeUnretainedValue()
         else { return }
 
         let firstIndexPathSelector = NSSelectorFromString("firstSelectableIndexPath")
@@ -3498,8 +3487,8 @@ final class SpotlightNativeLauncherUI {
         guard collectionController.responds(to: firstIndexPathSelector),
               collectionController.responds(to: selectIndexPathSelector),
               let firstIndexPath = collectionController
-              .perform(firstIndexPathSelector)?
-              .takeUnretainedValue() as? NSIndexPath
+                  .perform(firstIndexPathSelector)?
+                  .takeUnretainedValue() as? NSIndexPath
         else { return }
 
         _ = unsafeBitCast(
@@ -3871,11 +3860,11 @@ final class SpotlightNativeLauncherUI {
 
     private func setPinnedBadge(_ pinned: Bool, on itemView: NSView) {
         guard let imageView = Self.firstDescendant(
-            named: "SearchUIImageView",
-            in: itemView,
-        ),
-            let image = imageView.perform(NSSelectorFromString("tlkImage"))?
-            .takeUnretainedValue()
+                  named: "SearchUIImageView",
+                  in: itemView,
+              ),
+              let image = imageView.perform(NSSelectorFromString("tlkImage"))?
+                  .takeUnretainedValue()
         else { return }
 
         let badgeSelector = NSSelectorFromString("badgeImage")
@@ -4094,10 +4083,8 @@ final class SpotlightNativeLauncherUI {
                   of: NSCollectionView.self,
                   in: liveResultsViewController.view,
               ),
-              NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView"
-        else { return false }
-
-        guard adoptMacOS27ResultsController(liveResultsController),
+              NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView",
+              adoptMacOS27ResultsController(liveResultsController),
               adoptMacOS27TopHitResultsController(in: selectedController.view)
         else { return false }
         if liveCollectionView !== collectionView {
@@ -4157,15 +4144,15 @@ final class SpotlightNativeLauncherUI {
 
     private func adoptMacOS27TopHitResultsController(in root: NSView) -> Bool {
         guard let liveController = Self.firstDescendantResponder(
-            named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
-            in: root,
-        ),
-            let liveViewController = liveController as? NSViewController,
-            let liveCollectionView = Self.firstDescendant(
-                of: NSCollectionView.self,
-                in: liveViewController.view,
-            ),
-            NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView"
+                  named: "SpotlightUIInternal.SearchResultsAboveFiltersViewController",
+                  in: root,
+              ),
+              let liveViewController = liveController as? NSViewController,
+              let liveCollectionView = Self.firstDescendant(
+                  of: NSCollectionView.self,
+                  in: liveViewController.view,
+              ),
+              NSStringFromClass(type(of: liveCollectionView)) == "SearchUICollectionView"
         else { return false }
 
         if liveController !== topHitResultsController {
@@ -4199,11 +4186,11 @@ final class SpotlightNativeLauncherUI {
         guard runtimeGeneration == .spotlightUIInternal,
               let builderClass = NSClassFromString("SearchUIDataSourceSnapshotBuilder"),
               let builder = (builderClass as AnyObject)
-              .perform(NSSelectorFromString("new"))?
-              .takeRetainedValue(),
+                  .perform(NSSelectorFromString("new"))?
+                  .takeRetainedValue(),
               let collectionController = candidateCollectionView
-              .perform(NSSelectorFromString("controller"))?
-              .takeUnretainedValue(),
+                  .perform(NSSelectorFromString("controller"))?
+                  .takeUnretainedValue(),
               builder.responds(to: buildSelector),
               collectionController.responds(to: updateSelector)
         else {
@@ -4455,10 +4442,10 @@ final class SpotlightNativeLauncherUI {
 
     private static func makePinnedBadgeImage() -> AnyObject? {
         guard let symbol = NSImage(
-            systemSymbolName: "pin.fill",
-            accessibilityDescription: "Pinned",
-        ),
-            let imageClass = NSClassFromString("TLKImage")
+                  systemSymbolName: "pin.fill",
+                  accessibilityDescription: "Pinned",
+              ),
+              let imageClass = NSClassFromString("TLKImage")
         else { return nil }
         let imageClassObject = imageClass as AnyObject
         guard let allocated = imageClassObject
@@ -4474,8 +4461,8 @@ final class SpotlightNativeLauncherUI {
     private static func objectIvar(named name: String, on object: AnyObject) -> AnyObject? {
         guard let ivar = class_getInstanceVariable(type(of: object), name),
               let rawValue = Unmanaged.passUnretained(object).toOpaque()
-              .advanced(by: ivar_getOffset(ivar))
-              .load(as: UnsafeRawPointer?.self)
+                  .advanced(by: ivar_getOffset(ivar))
+                  .load(as: UnsafeRawPointer?.self)
         else { return nil }
         return Unmanaged<AnyObject>.fromOpaque(rawValue).takeUnretainedValue()
     }

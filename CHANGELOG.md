@@ -7,6 +7,7 @@
 - Fix a launch crash on macOS 27.2, where Spotlight's window manager no longer owns session analytics.
 - Fix a startup failure on macOS 27.2, where Spotlight's indexing status view is no longer inside the navigation bar.
 - Keep the application grid visible with regular Spotlight on macOS 27.2. Spotlight hid the results container shortly after it appeared, so the launcher closed itself.
+- Format the source with SwiftFormat 0.64, the version the release checks now run, so release verification passes.
 - Show the full application grid on macOS 27.2 with Enhanced Siri. The results accessory stayed a collapsed pill because nothing brought its animated size up to its resolved size. This fix applies only to the macOS 27.2 build where it was measured and does nothing on other builds.
 
 ## [0.1.22] - 2026-09-30

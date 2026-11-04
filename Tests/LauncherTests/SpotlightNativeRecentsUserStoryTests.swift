@@ -189,8 +189,8 @@ struct SpotlightNativeRecentsUserStoryTests {
     private func objectIvar(named name: String, on object: AnyObject) -> AnyObject? {
         guard let ivar = class_getInstanceVariable(type(of: object), name),
               let rawValue = Unmanaged.passUnretained(object).toOpaque()
-              .advanced(by: ivar_getOffset(ivar))
-              .load(as: UnsafeRawPointer?.self)
+                  .advanced(by: ivar_getOffset(ivar))
+                  .load(as: UnsafeRawPointer?.self)
         else { return nil }
         return Unmanaged<AnyObject>.fromOpaque(rawValue).takeUnretainedValue()
     }
